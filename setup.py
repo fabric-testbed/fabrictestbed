@@ -1,28 +1,28 @@
 import setuptools
 
-VERSION = "0.0.1"
+VERSION = "0.1"
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
 
+with open("requirements.txt", "r") as fh:
+    requirements = fh.read()
+
 setuptools.setup(
     name='fabric-cli',
     version=VERSION,
-    author="Erica Fu",
-    author_email="ericafu@renci.org",
-    description="FABRIC Testbed Python Client Library with CLI",
+    author="Erica Fu, Komal Thareja",
+    author_email="ericafu@renci.org, kthare10@unc.edu",
+    description="FABRIC Python Client Library with CLI",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/fabric-testbed/fabric-cli",
     packages=setuptools.find_packages(),
     include_package_data=True,
-    install_requires=[
-        'Click',
-        'fabric_credmgr'
-    ],
+    install_requires=requirements,
     entry_points='''
         [console_scripts]
-        fabric-cli=fabric.cli:cli
+        fabric-cli=fabric.cli.cli:cli
     ''',
     classifiers=[
                   "Programming Language :: Python :: 3",
