@@ -32,8 +32,6 @@
   res = CredMgr.refresh_token(projectname, scope, refreshtoken)
   res = CredMgr.revoke_token(refreshtoken)
 """
-import traceback
-from http import HTTPStatus
 import os
 import typing
 import webbrowser

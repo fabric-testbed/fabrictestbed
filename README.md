@@ -27,13 +27,13 @@ Multiple installation options possible. For CF development the recommended metho
 ```
 $ mkvirtualenv cli
 $ workon cli
-$ https://github.com/fabric-testbed/fabric-cli.git
+$ pip install git+https://github.com/fabric-testbed/fabric-cli.git
 ```
 For inclusion in tools, etc, use PyPi
 ```
 $ mkvirtualenv cli
 $ workon cli
-$ pip install cli
+$ pip install fabric-cli
 ```
 
 ## Configuration
@@ -54,11 +54,49 @@ Or run the eval command directly in your current shell to enable it temporarily.
 ## Usage
 User CLI supports token and resources commands:
 ```
+$ fabric-cli
+Usage: fabric-cli [OPTIONS] COMMAND [ARGS]...
 
+Options:
+  -v, --verbose
+  --help         Show this message and exit.
+
+Commands:
+  resources  Query Resources (set $FABRIC_ORCHESTRATOR_HOST to the Control...
+  slice      slice management
+  token      issue/get/refresh/revoke FABRIC tokens.
 ```
 
 ### Token Commands
 List of the token commands supported can be found below:
+```
+$ fabric-cli token
+Usage: fabric-cli token [OPTIONS] COMMAND [ARGS]...
+
+  issue/get/refresh/revoke FABRIC tokens. (set $FABRIC_CREDMGR_HOST to the
+  Credential Manager Server)
+
+Options:
+  --help  Show this message and exit.
+
+Commands:
+  issue    issue token with projectname and scope
+  refresh  refresh token
+  revoke   revoke token
+```
 
 ### Resources Commands
 List of the resource commands supported can be found below:
+```
+$ fabric-cli resources
+Usage: fabric-cli resources [OPTIONS] COMMAND [ARGS]...
+
+  Query Resources (set $FABRIC_ORCHESTRATOR_HOST to the Control Framework
+  Orchestrator)
+
+Options:
+  --help  Show this message and exit.
+
+Commands:
+  query  issue token with projectname and scope
+```
