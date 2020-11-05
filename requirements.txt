@@ -1,0 +1,4 @@
+click
+pytest
+fabric-credmgr-client
+fabric-orchestrator-client
