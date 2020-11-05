@@ -23,24 +23,19 @@
 #
 #
 # Author: Erica Fu (ericafu@renci.org), Komal Thareja (kthare10@renci.org)
+
 """Handles Credential Management: create/get/revoke/refresh tokens.
 
   usage example:
 
   res = CredMgr.create_token(projectname, scope)
-  res = CredMgr.get_token(user_id)
   res = CredMgr.refresh_token(projectname, scope, refreshtoken)
   res = CredMgr.revoke_token(refreshtoken)
 """
 import os
-import typing
 import webbrowser
 from fabric.credmgr import swagger_client
 from fabric.credmgr.swagger_client.rest import ApiException as CredMgrException
-
-
-class CredMgrRes(typing.NamedTuple):
-    response: dict
 
 
 CREDMGR_SERVER_API_PORT = os.getenv('FABRIC_CREDMGR_API_PORT', 7000)
@@ -55,7 +50,7 @@ api_instance = swagger_client.ApiClient(configuration)
 
 class CredMgr(object):
     @staticmethod
-    def create_token(project_name, scope):
+    def create_token(project_name, scope) -> dict:
         """ issue create_post request to Credential Manager.
 
             Args:
@@ -63,10 +58,7 @@ class CredMgr(object):
                 scope: FABRIC scope
 
             Returns:
-                CredMgrRes
-                (CredMgrRes.userid: userid)
-                (CredMgrRes.rawdata: original response from Credential Manager)
-
+                Raw Credential Manager response
             Raises:
                 Exception: An error occurred while creating the tokens.
         """
@@ -75,7 +67,7 @@ class CredMgr(object):
             url = "https://{}:{}/ui/".format(CREDMGR_SERVER, CREDMGR_SERVER_AUTH_PORT)
             webbrowser.open(url, new=2)
 
-            return CredMgrRes(response={'url': url})
+            return {'url': url}
         except CredMgrException as e:
             #traceback.print_exc()
             raise Exception(e.reason, e.body)
@@ -87,7 +79,7 @@ class CredMgr(object):
             body = swagger_client.Request(refresh_token)
             tokens_api = swagger_client.TokensApi(api_client=api_instance)
             api_response = tokens_api.tokens_revoke_post(body=body)
-            return CredMgrRes(response=api_response.to_dict())
+            return api_response.to_dict()
         except CredMgrException as e:
             #traceback.print_exc()
             raise Exception(e.reason, e.body)
@@ -103,7 +95,7 @@ class CredMgr(object):
                                                           scope=scope)
 
             tokens = api_response.to_dict()
-            return CredMgrRes(response=api_response.to_dict())
+            return api_response.to_dict()
         except CredMgrException as e:
             #traceback.print_exc()
             raise Exception(e.reason, e.body)

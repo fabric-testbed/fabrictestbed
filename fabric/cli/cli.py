@@ -50,7 +50,7 @@ def do_refresh_token(*, projectname: str, scope: str, refreshtoken: str):
     try:
         res = CredMgr.refresh_token(projectname, scope, refreshtoken)
         os.environ['FABRIC_REFRESH_TOKEN'] = res.get('refresh_token')
-        return res.response
+        return res
     except Exception as e:
         #traceback.print_exc()
         raise click.ClickException(str(e))
@@ -92,7 +92,7 @@ def issue(ctx, projectname, scope):
             scope = 'all'
     try:
         res = CredMgr.create_token(projectname, scope.lower())
-        url = res.response['url']
+        url = res.get('url', None)
         click.echo('After visiting the URL: {}, use POST /tokens/create command to generate fabric tokens'.format(url))
         click.echo('Set up the environment variables for FABRIC_ID_TOKEN and FABRIC_REFRESH_TOKEN')
 
@@ -131,7 +131,7 @@ def revoke(ctx, refreshtoken):
             raise click.ClickException('need refreshtoken parameter')
     try:
         res = CredMgr.revoke_token(refreshtoken)
-        click.echo(json.dumps(res.response))
+        click.echo(json.dumps(res))
     except Exception as e:
         raise click.ClickException(str(e))
 
