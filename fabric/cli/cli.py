@@ -49,7 +49,12 @@ def do_refresh_token(*, projectname: str, scope: str, refreshtoken: str):
             raise click.ClickException('need refreshtoken parameter')
     try:
         res = CredMgr.refresh_token(projectname, scope, refreshtoken)
-        os.environ['FABRIC_REFRESH_TOKEN'] = res.get('refresh_token')
+        click.echo()
+        click.echo("NOTE: Please reset your environment variable")
+        cmd = "export FABRIC_REFRESH_TOKEN={}".format(res.get('refresh_token'))
+        print(cmd)
+        click.echo("NOTE: Please reset your environment variable")
+        click.echo()
         return res
     except Exception as e:
         #traceback.print_exc()
