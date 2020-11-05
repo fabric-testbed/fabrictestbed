@@ -4,8 +4,8 @@ Fabric User CLI for experiments
 
 ## Overview
 User CLI supports following kinds commands:
-    - Token : Commands to issue, refresh or revoke tokens
-    - Orchestrator Commands
+- Token : Commands to issue, refresh or revoke tokens
+- Orchestrator Commands : Query/Request/Modify/Delete Resources
 
 Command | SubCommand | Action | Input | Output
 :--------|:----:|:----:|:---:|:---:
