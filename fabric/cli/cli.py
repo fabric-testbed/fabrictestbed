@@ -31,6 +31,7 @@ import json
 from .credential import CredMgr
 from .exceptions import TokenExpiredException
 from .orchestrator import Orchestrator
+import subprocess
 
 
 def do_refresh_token(*, projectname: str, scope: str, refreshtoken: str):
@@ -46,7 +47,7 @@ def do_refresh_token(*, projectname: str, scope: str, refreshtoken: str):
     if refreshtoken is None:
         refreshtoken = os.getenv('FABRIC_REFRESH_TOKEN', None)
         if refreshtoken is None:
-            raise click.ClickException('need refreshtoken parameter')
+            raise click.ClickException('Either specify refreshtoken parameter or set FABRIC_REFRESH_TOKEN environment variable')
     try:
         res = CredMgr.refresh_token(projectname, scope, refreshtoken)
         click.echo()
@@ -207,7 +208,8 @@ def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str):
 
     if idtoken is None:
         idtoken = os.getenv('FABRIC_ID_TOKEN', None)
-        raise click.ClickException('Either of idtoken or refreshtoken must be specified')
+        if idtoken is None: 
+            raise click.ClickException('Either idtoken or refreshtoken must be specified or set environment variables FABRIC_ID_TOKEN or FABRIC_REFRESH_TOKEN')
 
     try:
         res = Orchestrator.resources(id_token=idtoken)
