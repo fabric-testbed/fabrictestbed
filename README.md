@@ -1,3 +1,5 @@
+[![Requirements Status](https://requires.io/github/fabric-testbed/fabric-cli/requirements.svg?branch=master)](https://requires.io/github/fabric-testbed/fabric-cli/requirements/?branch=master)
+
 # FABRIC User CLI
 
 Fabric User CLI for experiments
