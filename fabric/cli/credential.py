@@ -34,17 +34,15 @@
 """
 import os
 import webbrowser
-from fabric.credmgr import swagger_client
-from fabric.credmgr.swagger_client.rest import ApiException as CredMgrException
+from fabric_cm.credmgr import swagger_client
+from fabric_cm.credmgr.swagger_client.rest import ApiException as CredMgrException
 
 
-CREDMGR_SERVER_API_PORT = os.getenv('FABRIC_CREDMGR_API_PORT', 7000)
-CREDMGR_SERVER_AUTH_PORT = os.getenv('FABRIC_CREDMGR_AUTH_PORT', 8443)
 CREDMGR_SERVER = os.getenv('FABRIC_CREDMGR_HOST', 'dev-2.fabric-testbed.net')
 
 # create an instance of the API class
 configuration = swagger_client.configuration.Configuration()
-configuration.host = "http://{}:{}/".format(CREDMGR_SERVER, CREDMGR_SERVER_API_PORT)
+configuration.host = "http://{}/".format(CREDMGR_SERVER)
 api_instance = swagger_client.ApiClient(configuration)
 
 
@@ -64,7 +62,7 @@ class CredMgr(object):
         """
         try:
             # Generate OAuth tokens for an user
-            url = "https://{}:{}/ui/".format(CREDMGR_SERVER, CREDMGR_SERVER_AUTH_PORT)
+            url = "https://{}/ui/".format(CREDMGR_SERVER)
             webbrowser.open(url, new=2)
 
             return {'url': url}

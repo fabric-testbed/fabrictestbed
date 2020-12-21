@@ -26,10 +26,9 @@
 import os
 import traceback
 
-from fabric.orchestrator import swagger_client
-from fabric.orchestrator.swagger_client.rest import ApiException as OrchestratorException
+from fabric_cf.orchestrator import swagger_client
+from fabric_cf.orchestrator.swagger_client.rest import ApiException as OrchestratorException
 
-ORCHESTRATOR_API_PORT = os.getenv('FABRIC_ORCHESTRATOR_API_PORT', 8700)
 ORCHESTRATOR_API_PORT_SERVER = os.getenv('FABRIC_ORCHESTRATOR_HOST', 'dev-2.fabric-testbed.net')
 
 
@@ -46,7 +45,7 @@ class Orchestrator:
         try:
             # create an instance of the API class
             configuration = swagger_client.Configuration()
-            configuration.host = "http://{}:{}/".format(ORCHESTRATOR_API_PORT_SERVER, ORCHESTRATOR_API_PORT)
+            configuration.host = "http://{}/".format(ORCHESTRATOR_API_PORT_SERVER)
             configuration.api_key['Authorization'] = id_token
             configuration.api_key_prefix['Authorization'] = 'Bearer'
 
