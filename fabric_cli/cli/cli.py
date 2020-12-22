@@ -31,7 +31,6 @@ import json
 from .credential import CredMgr
 from .exceptions import TokenExpiredException
 from .orchestrator import Orchestrator
-import subprocess
 
 
 def do_refresh_token(*, projectname: str, scope: str, refreshtoken: str):
@@ -99,7 +98,7 @@ def issue(ctx, projectname, scope):
     try:
         res = CredMgr.create_token(projectname, scope.lower())
         url = res.get('url', None)
-        click.echo('After visiting the URL: {}, use POST /tokens/create command to generate fabric tokens'.format(url))
+        click.echo('After visiting the URL: {}, use POST /tokens/create command to generate fabric_cli tokens'.format(url))
         click.echo('Set up the environment variables for FABRIC_ID_TOKEN and FABRIC_REFRESH_TOKEN')
 
         if ctx.obj['VERBOSE']:
@@ -107,7 +106,7 @@ def issue(ctx, projectname, scope):
             click.echo(json.dumps(res.response))
     except TokenExpiredException as e:
         raise click.ClickException(str(e) +
-                                   ', use \'fabric-cli token refresh\' to refresh token first')
+                                   ', use \'fabric_cli-cli token refresh\' to refresh token first')
     except Exception as e:
         raise click.ClickException(str(e))
 
@@ -220,7 +219,7 @@ def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str):
                                                                                     projectname, scope))
     except TokenExpiredException as e:
         raise click.ClickException(str(e) +
-                                   ', use \'fabric-cli token refresh\' to refresh token first')
+                                   ', use \'fabric_cli-cli token refresh\' to refresh token first')
     except Exception as e:
         raise click.ClickException(str(e))
 

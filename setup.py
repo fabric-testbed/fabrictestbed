@@ -1,6 +1,6 @@
 import setuptools
 
-VERSION = "0.2"
+VERSION = "0.3"
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
@@ -22,7 +22,7 @@ setuptools.setup(
     install_requires=requirements,
     entry_points='''
         [console_scripts]
-        fabric-cli=fabric.cli.cli:cli
+        fabric-cli=fabric_cli.cli.cli:cli
     ''',
     classifiers=[
                   "Programming Language :: Python :: 3",
