@@ -84,8 +84,8 @@ def test_resources_get_with_refresh_token():
 
 if __name__ == '__main__':
     import os
-    os.environ['FABRIC_CREDMGR_HOST'] = 'dev-2.fabric_cli-testbed.net'
-    os.environ['FABRIC_ORCHESTRATOR_HOST'] = 'dev-2.fabric_cli-testbed.net'
+    os.environ['FABRIC_CREDMGR_HOST'] = 'dev-2.fabric-testbed.net'
+    os.environ['FABRIC_ORCHESTRATOR_HOST'] = 'dev-2.fabric-testbed.net'
     test_token_issue()
     test_token_issue_verbose()
     test_token_refresh()

@@ -24,12 +24,11 @@
 #
 # Author: Komal Thareja (kthare10@renci.org)
 import os
-import traceback
 
 from fabric_cf.orchestrator import swagger_client
 from fabric_cf.orchestrator.swagger_client.rest import ApiException as OrchestratorException
 
-ORCHESTRATOR_API_PORT_SERVER = os.getenv('FABRIC_ORCHESTRATOR_HOST', 'dev-2.fabric_cli-testbed.net')
+ORCHESTRATOR_API_PORT_SERVER = os.getenv('FABRIC_ORCHESTRATOR_HOST', 'dev-2.fabric-testbed.net:8700')
 
 
 class Orchestrator:

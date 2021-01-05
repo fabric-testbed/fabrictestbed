@@ -38,11 +38,11 @@ from fabric_cm.credmgr import swagger_client
 from fabric_cm.credmgr.swagger_client.rest import ApiException as CredMgrException
 
 
-CREDMGR_SERVER = os.getenv('FABRIC_CREDMGR_HOST', 'dev-2.fabric_cli-testbed.net')
+CREDMGR_SERVER = os.getenv('FABRIC_CREDMGR_HOST', 'dev-2.fabric-testbed.net')
 
 # create an instance of the API class
 configuration = swagger_client.configuration.Configuration()
-configuration.host = "http://{}/".format(CREDMGR_SERVER)
+configuration.host = "https://{}/".format(CREDMGR_SERVER)
 api_instance = swagger_client.ApiClient(configuration)
 
 

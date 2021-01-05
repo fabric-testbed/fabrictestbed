@@ -103,7 +103,7 @@ def issue(ctx, projectname, scope):
 
         if ctx.obj['VERBOSE']:
             click.echo('projectname: %s, scope: %s' % (projectname, scope))
-            click.echo(json.dumps(res.response))
+            click.echo(json.dumps(res))
     except TokenExpiredException as e:
         raise click.ClickException(str(e) +
                                    ', use \'fabric_cli-cli token refresh\' to refresh token first')
