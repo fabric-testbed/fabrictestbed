@@ -1,5 +1,8 @@
 [![Requirements Status](https://requires.io/github/fabric-testbed/fabric-cli/requirements.svg?branch=master)](https://requires.io/github/fabric-testbed/fabric-cli/requirements/?branch=master)
 
+[![PyPI](https://img.shields.io/pypi/v/fabric-cli?style=plastic)](https://pypi.org/project/fabric-cli/)
+
+
 # FABRIC User CLI
 
 Fabric User CLI for experiments
