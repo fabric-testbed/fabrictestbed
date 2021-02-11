@@ -14,10 +14,14 @@ User CLI supports following kinds commands:
 
 Command | SubCommand | Action | Input | Output
 :--------|:----:|:----:|:---:|:---:
-`token` | `issue`| Issue Fabric Tokens | `projectname` Project Name, `scope` Scope | Points user to Credential Manager to generate the tokens
-`token` | `refresh`| Refresh Fabric Tokens | `projectname` Project Name, `scope` Scope, `refreshtoken` Refresh Token | Returns new identity and refresh tokens
-`token` | `revoke` | Revoke a Refresh Token |  `refreshtoken` Refresh Token | Success or Failure status
-`resources` | `query` | Query available resources from Orchestrator |  | Graph ML representing the available resources
+`tokens` | `issue`| Issue token with projectname and scope | `projectname` Project Name, `scope` Scope | Points user to Credential Manager to generate the tokens
+`token` | `refresh`| Refresh token | `projectname` Project Name, `scope` Scope, `refreshtoken` Refresh Token | Returns new identity and refresh tokens
+`token` | `revoke` | Revoke token |  `refreshtoken` Refresh Token | Success or Failure status
+`slices` | `query` | Query user slice(s) |  `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectname` Project Name, `scope` Scope, `sliceid` Slice Id | List of Slices or Graph ML representing slice identified by Slice Id
+`slices` | `create` | Create user slice |  `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectname` Project Name, `scope` Scope, `slicename` Slice Name, `slicegraph` Slice graph | List of Slivers created for the Slice
+`slices` | `delete` | Delete user slice |  `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectname` Project Name, `scope` Scope, `sliceid` Slice Id | Success or Failure Status
+`slivers` | `query` | Query user sliver(s) |  `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectname` Project Name, `scope` Scope, `sliceid` Slice Id, `sliverid` Sliver Id | List of Slivers for the slice identified by Slice Id or Sliver identified by Sliver Id
+`resources` | `query` | Query resources | `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectname` Project Name, `scope` Scope | Graph ML representing the available resources
 
 ## Requirements
 Python 3.7+
@@ -30,14 +34,14 @@ Ensure that following are installed
 ## Installation
 Multiple installation options possible. For CF development the recommended method is to install from GitHub MASTER branch:
 ```
-$ mkvirtualenv cli
-$ workon cli
+$ mkvirtualenv usercli
+$ workon usercli
 $ pip install git+https://github.com/fabric-testbed/fabric-cli.git
 ```
 For inclusion in tools, etc, use PyPi
 ```
-$ mkvirtualenv cli
-$ workon cli
+$ mkvirtualenv usercli
+$ workon usercli
 $ pip install fabric-cli
 ```
 
@@ -59,7 +63,7 @@ Or run the eval command directly in your current shell to enable it temporarily.
 ## Usage
 User CLI supports token and resources commands:
 ```
-$ fabric-cli
+(usercli) $ fabric-cli
 Usage: fabric-cli [OPTIONS] COMMAND [ARGS]...
 
 Options:
@@ -67,30 +71,31 @@ Options:
   --help         Show this message and exit.
 
 Commands:
-  resources  Query Resources (set $FABRIC_ORCHESTRATOR_HOST to the Control...
-  slice      slice management
-  token      issue/get/refresh/revoke FABRIC tokens.
+  resources  Resource management (set $FABRIC_ORCHESTRATOR_HOST to the...
+  slices     Slice management (set $FABRIC_ORCHESTRATOR_HOST to the...
+  slivers    Sliver management (set $FABRIC_ORCHESTRATOR_HOST to the...
+  tokens     Token management (set $FABRIC_CREDMGR_HOST to the Credential...
 ```
 
-### Token Commands
+### Token Management Commands
 List of the token commands supported can be found below:
 ```
-$ fabric-cli token
-Usage: fabric-cli token [OPTIONS] COMMAND [ARGS]...
+(usercli) $ fabric-cli tokens
+Usage: fabric-cli tokens [OPTIONS] COMMAND [ARGS]...
 
-  issue/get/refresh/revoke FABRIC tokens. (set $FABRIC_CREDMGR_HOST to the
-  Credential Manager Server)
+  Token management (set $FABRIC_CREDMGR_HOST to the Credential Manager
+  Server)
 
 Options:
   --help  Show this message and exit.
 
 Commands:
-  issue    issue token with projectname and scope
-  refresh  refresh token
-  revoke   revoke token
+  issue    Issue token with projectname and scope
+  refresh  Refresh token
+  revoke   Revoke token
 ```
 
-### Resources Commands
+### Resource Management Commands
 List of the resource commands supported can be found below:
 ```
 $ fabric-cli resources
@@ -104,4 +109,32 @@ Options:
 
 Commands:
   query  issue token with projectname and scope
+```
+### Slice Management Commands
+```
+(usercli) $ fabric-cli slices
+Usage: fabric-cli slices [OPTIONS] COMMAND [ARGS]...
+
+  Slice management (set $FABRIC_ORCHESTRATOR_HOST to the Orchestrator)
+
+Options:
+  --help  Show this message and exit.
+
+Commands:
+  create  Create user slice
+  delete  Delete user slice
+  query   Query user slice(s)
+```
+### Sliver Management Commands
+```
+(usercli) $ fabric-cli slivers
+Usage: fabric-cli slivers [OPTIONS] COMMAND [ARGS]...
+
+  Sliver management (set $FABRIC_ORCHESTRATOR_HOST to the Orchestrator)
+
+Options:
+  --help  Show this message and exit.
+
+Commands:
+  query  Query user slice sliver(s)
 ```

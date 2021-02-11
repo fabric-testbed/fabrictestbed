@@ -46,7 +46,8 @@ def do_refresh_token(*, projectname: str, scope: str, refreshtoken: str):
     if refreshtoken is None:
         refreshtoken = os.getenv('FABRIC_REFRESH_TOKEN', None)
         if refreshtoken is None:
-            raise click.ClickException('Either specify refreshtoken parameter or set FABRIC_REFRESH_TOKEN environment variable')
+            raise click.ClickException(f'Either specify refreshtoken parameter or set '
+                                       f'FABRIC_REFRESH_TOKEN environment variable')
     try:
         res = CredMgr.refresh_token(projectname, scope, refreshtoken)
         click.echo()
@@ -70,8 +71,8 @@ def cli(ctx, verbose):
 
 @click.group()
 @click.pass_context
-def token(ctx):
-    """ issue/get/refresh/revoke FABRIC tokens.
+def tokens(ctx):
+    """ Token management
         (set $FABRIC_CREDMGR_HOST to the Credential Manager Server)
     """
     credmgr_host = os.getenv('FABRIC_CREDMGR_HOST')
@@ -79,13 +80,13 @@ def token(ctx):
         ctx.fail('$FABRIC_CREDMGR_HOST is not set')
 
 
-@token.command()
+@tokens.command()
 @click.option('--projectname', default=None, help='project name')
 @click.option('--scope', type=click.Choice(['control', 'measurement', 'all'], case_sensitive=False),
               default=None, help='scope')
 @click.pass_context
 def issue(ctx, projectname, scope):
-    """ issue token with projectname and scope
+    """ Issue token with projectname and scope
     """
     if projectname is None:
         projectname = os.getenv('FABRIC_PROJECT_NAME', 'all')
@@ -98,7 +99,7 @@ def issue(ctx, projectname, scope):
     try:
         res = CredMgr.create_token(projectname, scope.lower())
         url = res.get('url', None)
-        click.echo('After visiting the URL: {}, use POST /tokens/create command to generate fabric_cli tokens'.format(url))
+        click.echo(f'After visiting the URL: {url}, use POST /tokens/create command to generate fabric_cli tokens')
         click.echo('Set up the environment variables for FABRIC_ID_TOKEN and FABRIC_REFRESH_TOKEN')
 
         if ctx.obj['VERBOSE']:
@@ -111,24 +112,24 @@ def issue(ctx, projectname, scope):
         raise click.ClickException(str(e))
 
 
-@token.command()
+@tokens.command()
 @click.option('--refreshtoken', help='refreshtoken', required=True)
 @click.option('--projectname', default=None, help='project name')
 @click.option('--scope', type=click.Choice(['control', 'measurement', 'all'], case_sensitive=False),
               default='all', help='scope')
 @click.pass_context
 def refresh(ctx, refreshtoken, projectname, scope):
-    """refresh token
+    """Refresh token
     """
     result = do_refresh_token(projectname=projectname, scope=scope, refreshtoken=refreshtoken)
     click.echo(json.dumps(result))
 
 
-@token.command()
+@tokens.command()
 @click.option('--refreshtoken', help='refreshtoken', required=True)
 @click.pass_context
 def revoke(ctx, refreshtoken):
-    """ revoke token
+    """ Revoke token
     """
     if refreshtoken is None:
         refreshtoken = os.getenv('FABRIC_REFRESH_TOKEN', None)
@@ -143,41 +144,201 @@ def revoke(ctx, refreshtoken):
 
 @click.group()
 @click.pass_context
-def slice(ctx):
-    """ slice management
+def slices(ctx):
+    """ Slice management
+        (set $FABRIC_ORCHESTRATOR_HOST to the Orchestrator)
     """
-    pass
+    orchestrator_host = os.getenv('FABRIC_ORCHESTRATOR_HOST')
+    if orchestrator_host is None or orchestrator_host == "":
+        ctx.fail('FABRIC_ORCHESTRATOR_HOST is not set')
 
 
-@slice.command()
+@slices.command()
+@click.option('--idtoken', default=None, help='Fabric Identity Token')
+@click.option('--refreshtoken', default=None, help='Fabric Refresh Token')
 @click.option('--projectname', default='all', help='project name')
-@click.option('--scope', type=click.Choice(['CF', 'MF', 'all'], case_sensitive=False),
+@click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='scope')
+@click.option('--sliceid', default=None, help='Slice Id')
 @click.pass_context
-def create(ctx, projectname, scope):
-    """ create slice
+def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, sliceid: str):
+    """ Query user slice(s)
     """
-    if ctx.obj['VERBOSE']:
-        click.echo('create slice not implemented yet. proj=%s scope=%s' % (projectname, scope))
-    else:
-        click.echo('not ready. %s, %s' % (projectname, scope))
+    tokens = None
+    if refreshtoken is None:
+        refreshtoken = os.getenv('FABRIC_REFRESH_TOKEN', None)
+
+    if refreshtoken is not None:
+        try:
+            tokens = do_refresh_token(projectname=projectname, scope=scope, refreshtoken=refreshtoken)
+            idtoken = tokens.get('id_token', None)
+        except Exception as e:
+            raise click.ClickException('Not a valid refreshtoken! Error: {}'.format(e))
+
+    if idtoken is None:
+        idtoken = os.getenv('FABRIC_ID_TOKEN', None)
+        if idtoken is None:
+            raise click.ClickException(f'Either idtoken or refreshtoken must be specified or set environment variables '
+                                       f'FABRIC_ID_TOKEN or FABRIC_REFRESH_TOKEN')
+
+    try:
+        res = Orchestrator.slices(id_token=idtoken, slice_id=sliceid)
+        click.echo(json.dumps(res))
+
+        if ctx.obj['VERBOSE']:
+            click.echo('idtoken: %s refreshtoken: %s projectname: %s, scope: %s' % (idtoken, refreshtoken,
+                                                                                    projectname, scope))
+    except TokenExpiredException as e:
+        raise click.ClickException(str(e) +
+                                   ', use \'fabric_cli-cli token refresh\' to refresh token first')
+    except Exception as e:
+        raise click.ClickException(str(e))
 
 
-@slice.command()
-def delete(ctx, project, scope):
-    """ delete slice
+@slices.command()
+@click.option('--idtoken', default=None, help='Fabric Identity Token')
+@click.option('--refreshtoken', default=None, help='Fabric Refresh Token')
+@click.option('--projectname', default='all', help='project name')
+@click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
+              default='all', help='scope')
+@click.option('--slicename', help='Slice Name', required=True)
+@click.option('--slicegraph', help='Slice Graph', required=True)
+@click.pass_context
+def create(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, slicename: str, slicegraph: str):
+    """ Create user slice
     """
-    if ctx.obj['VERBOSE']:
-        click.echo('delete slice not implemented yet. proj=%s scope=%s' % (project, scope))
-    else:
-        click.echo('not ready. %s, %s' % (project, scope))
+    tokens = None
+    if refreshtoken is None:
+        refreshtoken = os.getenv('FABRIC_REFRESH_TOKEN', None)
+
+    if refreshtoken is not None:
+        try:
+            tokens = do_refresh_token(projectname=projectname, scope=scope, refreshtoken=refreshtoken)
+            idtoken = tokens.get('id_token', None)
+        except Exception as e:
+            raise click.ClickException('Not a valid refreshtoken! Error: {}'.format(e))
+
+    if idtoken is None:
+        idtoken = os.getenv('FABRIC_ID_TOKEN', None)
+        if idtoken is None:
+            raise click.ClickException(f'Either idtoken or refreshtoken must be specified or set environment variables '
+                                       f'FABRIC_ID_TOKEN or FABRIC_REFRESH_TOKEN')
+
+    try:
+        res = Orchestrator.create_slice(id_token=idtoken, slice_name=slicename, slice_graph=slicegraph)
+        click.echo(json.dumps(res))
+
+        if ctx.obj['VERBOSE']:
+            click.echo('idtoken: %s refreshtoken: %s projectname: %s, scope: %s' % (idtoken, refreshtoken,
+                                                                                    projectname, scope))
+    except TokenExpiredException as e:
+        raise click.ClickException(str(e) +
+                                   ', use \'fabric_cli-cli token refresh\' to refresh token first')
+    except Exception as e:
+        raise click.ClickException(str(e))
+
+
+@slices.command()
+@click.option('--idtoken', default=None, help='Fabric Identity Token')
+@click.option('--refreshtoken', default=None, help='Fabric Refresh Token')
+@click.option('--projectname', default='all', help='project name')
+@click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
+              default='all', help='scope')
+@click.option('--sliceid', help='Slice Id', required=True)
+@click.pass_context
+def delete(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, sliceid: str):
+    """ Delete user slice
+    """
+    tokens = None
+    if refreshtoken is None:
+        refreshtoken = os.getenv('FABRIC_REFRESH_TOKEN', None)
+
+    if refreshtoken is not None:
+        try:
+            tokens = do_refresh_token(projectname=projectname, scope=scope, refreshtoken=refreshtoken)
+            idtoken = tokens.get('id_token', None)
+        except Exception as e:
+            raise click.ClickException('Not a valid refreshtoken! Error: {}'.format(e))
+
+    if idtoken is None:
+        idtoken = os.getenv('FABRIC_ID_TOKEN', None)
+        if idtoken is None:
+            raise click.ClickException(f'Either idtoken or refreshtoken must be specified or set environment variables '
+                                       f'FABRIC_ID_TOKEN or FABRIC_REFRESH_TOKEN')
+
+    try:
+        res = Orchestrator.delete_slice(id_token=idtoken, slice_id=sliceid)
+        click.echo(json.dumps(res))
+
+        if ctx.obj['VERBOSE']:
+            click.echo('idtoken: %s refreshtoken: %s projectname: %s, scope: %s' % (idtoken, refreshtoken,
+                                                                                    projectname, scope))
+    except TokenExpiredException as e:
+        raise click.ClickException(str(e) +
+                                   ', use \'fabric_cli-cli token refresh\' to refresh token first')
+    except Exception as e:
+        raise click.ClickException(str(e))
+
+
+@click.group()
+@click.pass_context
+def slivers(ctx):
+    """ Sliver management
+        (set $FABRIC_ORCHESTRATOR_HOST to the Orchestrator)
+    """
+    orchestrator_host = os.getenv('FABRIC_ORCHESTRATOR_HOST')
+    if orchestrator_host is None or orchestrator_host == "":
+        ctx.fail('FABRIC_ORCHESTRATOR_HOST is not set')
+
+
+@slivers.command()
+@click.option('--idtoken', default=None, help='Fabric Identity Token')
+@click.option('--refreshtoken', default=None, help='Fabric Refresh Token')
+@click.option('--projectname', default='all', help='project name')
+@click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
+              default='all', help='scope')
+@click.option('--sliceid', help='Slice Id')
+@click.option('--sliverid', default=None, help='Sliver Id')
+@click.pass_context
+def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, sliceid: str, sliverid: str):
+    """ Query user slice sliver(s)
+    """
+    tokens = None
+    if refreshtoken is None:
+        refreshtoken = os.getenv('FABRIC_REFRESH_TOKEN', None)
+
+    if refreshtoken is not None:
+        try:
+            tokens = do_refresh_token(projectname=projectname, scope=scope, refreshtoken=refreshtoken)
+            idtoken = tokens.get('id_token', None)
+        except Exception as e:
+            raise click.ClickException('Not a valid refreshtoken! Error: {}'.format(e))
+
+    if idtoken is None:
+        idtoken = os.getenv('FABRIC_ID_TOKEN', None)
+        if idtoken is None:
+            raise click.ClickException(f'Either idtoken or refreshtoken must be specified or set environment variables'
+                                       f' FABRIC_ID_TOKEN or FABRIC_REFRESH_TOKEN')
+
+    try:
+        res = Orchestrator.slivers(id_token=idtoken, slice_id=sliceid, sliver_id=sliverid)
+        click.echo(json.dumps(res))
+
+        if ctx.obj['VERBOSE']:
+            click.echo('idtoken: %s refreshtoken: %s projectname: %s, scope: %s' % (idtoken, refreshtoken,
+                                                                                    projectname, scope))
+    except TokenExpiredException as e:
+        raise click.ClickException(str(e) +
+                                   ', use \'fabric_cli-cli token refresh\' to refresh token first')
+    except Exception as e:
+        raise click.ClickException(str(e))
 
 
 @click.group()
 @click.pass_context
 def resources(ctx):
-    """ Query Resources
-        (set $FABRIC_ORCHESTRATOR_HOST to the Control Framework Orchestrator)
+    """ Resource management
+        (set $FABRIC_ORCHESTRATOR_HOST to the Orchestrator)
     """
     orchestrator_host = os.getenv('FABRIC_ORCHESTRATOR_HOST')
     if orchestrator_host is None or orchestrator_host == "":
@@ -188,11 +349,11 @@ def resources(ctx):
 @click.option('--idtoken', default=None, help='Fabric Identity Token')
 @click.option('--refreshtoken', default=None, help='Fabric Refresh Token')
 @click.option('--projectname', default='all', help='project name')
-@click.option('--scope', type=click.Choice(['control', 'measurement', 'all'], case_sensitive=False),
+@click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='scope')
 @click.pass_context
 def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str):
-    """ issue token with projectname and scope
+    """ Query resources
     """
     tokens = None
     if refreshtoken is None:
@@ -208,7 +369,8 @@ def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str):
     if idtoken is None:
         idtoken = os.getenv('FABRIC_ID_TOKEN', None)
         if idtoken is None: 
-            raise click.ClickException('Either idtoken or refreshtoken must be specified or set environment variables FABRIC_ID_TOKEN or FABRIC_REFRESH_TOKEN')
+            raise click.ClickException(f'Either idtoken or refreshtoken must be specified or set environment variables'
+                                       f' FABRIC_ID_TOKEN or FABRIC_REFRESH_TOKEN')
 
     try:
         res = Orchestrator.resources(id_token=idtoken)
@@ -224,7 +386,8 @@ def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str):
         raise click.ClickException(str(e))
 
 
-cli.add_command(token)
-cli.add_command(slice)
+cli.add_command(tokens)
+cli.add_command(slices)
+cli.add_command(slivers)
 cli.add_command(resources)
 
