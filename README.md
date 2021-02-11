@@ -9,8 +9,10 @@ Fabric User CLI for experiments
 
 ## Overview
 User CLI supports following kinds commands:
-- Token : Commands to issue, refresh or revoke tokens
-- Orchestrator Commands : Query/Request/Modify/Delete Resources
+- Tokens: Token management
+- Slices: Slice management
+- Slivers: Sliver management
+- Resources: Resource management
 
 Command | SubCommand | Action | Input | Output
 :--------|:----:|:----:|:---:|:---:
