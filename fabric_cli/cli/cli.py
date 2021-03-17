@@ -221,8 +221,10 @@ def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, sl
               default='all', help='scope')
 @click.option('--slicename', help='Slice Name', required=True)
 @click.option('--slicegraph', help='Slice Graph', required=True)
+@click.option('--sshkey', help='SSH Key', required=True)
 @click.pass_context
-def create(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, slicename: str, slicegraph: str):
+def create(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, slicename: str, slicegraph: str,
+           sshkey: str):
     """ Create user slice
     """
     tokens = None
@@ -246,7 +248,7 @@ def create(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, s
 
     try:
         proxy = OrchestratorProxy(orchestrator_host=ctx.obj['orchestrator_host'])
-        status, response = proxy.create(token=idtoken, slice_name=slicename, slice_graph=slicegraph)
+        status, response = proxy.create(token=idtoken, slice_name=slicename, slice_graph=slicegraph, ssh_key=sshkey)
 
         if status == Status.OK:
             click.echo(json.dumps(response))
