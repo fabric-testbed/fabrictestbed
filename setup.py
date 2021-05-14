@@ -1,6 +1,6 @@
 import setuptools
 
-VERSION = "0.8"
+VERSION = "0.9"
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
@@ -9,7 +9,7 @@ with open("requirements.txt", "r") as fh:
     requirements = fh.read()
 
 setuptools.setup(
-    name='fabric-cli',
+    name='fabrictestbed-cli',
     version=VERSION,
     author="Erica Fu, Komal Thareja",
     author_email="ericafu@renci.org, kthare10@unc.edu",
