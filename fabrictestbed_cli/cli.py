@@ -25,18 +25,27 @@
 # Author: Erica Fu (ericafu@renci.org), Komal Thareja (kthare10@renci.org)
 import traceback
 import webbrowser
+from typing import Tuple
 
 import click
 import os
 import json
 
-from fabric_cf.orchestrator.orchestrator_proxy import OrchestratorProxy, Status
-from fabric_cm.credmgr.credmgr_proxy import CredmgrProxy
+from .api import CredmgrProxy, OrchestratorProxy, Status, CmStatus
 
 from .exceptions import TokenExpiredException
 
 
-def do_refresh_token(*, credmgr_host: str, projectname: str, scope: str, refreshtoken: str):
+def __do_refresh_token(*, credmgr_host: str, projectname: str, scope: str, refreshtoken: str) -> Tuple[str, str]:
+    """
+    Refresh Token by invoking Credential Manager Proxy
+    @param credmgr_host Credential Manager
+    @param projectname Project Name
+    @param scope Scope
+    @param refreshtoken Refresh Token
+    @return Id token and Refresh Token
+    @raises ClickException in case of error
+    """
     if projectname is None:
         projectname = os.getenv('FABRIC_PROJECT_NAME', 'all')
         if projectname == '':
@@ -51,23 +60,41 @@ def do_refresh_token(*, credmgr_host: str, projectname: str, scope: str, refresh
         if refreshtoken is None:
             raise click.ClickException(f'Either specify refreshtoken parameter or set '
                                        f'FABRIC_REFRESH_TOKEN environment variable')
-    try:
 
-        res = CredmgrProxy(credmgr_host=credmgr_host).refresh(project_name=projectname, scope=scope,
-                                                              refresh_token=refreshtoken)
+    cm_proxy = CredmgrProxy(credmgr_host=credmgr_host)
+    status, id_token_or_error, refresh_token = cm_proxy.refresh(project_name=projectname, scope=scope,
+                                                                refresh_token=refreshtoken)
+    if status == CmStatus.OK:
         click.echo()
         click.echo("NOTE: Please reset your environment variable")
-        cmd = "export FABRIC_REFRESH_TOKEN={}".format(res.get('refresh_token'))
+        cmd = f"export FABRIC_REFRESH_TOKEN={refresh_token}"
         print(cmd)
         click.echo("NOTE: Please reset your environment variable")
         click.echo()
-        return res
-    except Exception as e:
-        #traceback.print_exc()
-        raise click.ClickException(str(e))
+        return id_token_or_error, refresh_token
+    else:
+        raise click.ClickException(id_token_or_error)
 
 
-def do_context_validation(ctx):
+def __get_tokens(*, credmgr_host: str, idtoken: str, refreshtoken: str, projectname: str,
+                 scope: str) -> Tuple[str, str]:
+    """
+    Get Tokens for Orchestrator APIs using either FABRIC_ID_TOKEN or FABRIC_REFRESH_TOKEN environment variables
+    """
+    if refreshtoken is not None:
+        idtoken, refreshtoken = __do_refresh_token(credmgr_host=credmgr_host, projectname=projectname,
+                                                   scope=scope, refreshtoken=refreshtoken)
+
+    if idtoken is None:
+        idtoken = os.getenv('FABRIC_ID_TOKEN', None)
+        if idtoken is None:
+            raise click.ClickException(f'Either idtoken or refreshtoken must be specified or set environment variables '
+                                       f'FABRIC_ID_TOKEN or FABRIC_REFRESH_TOKEN')
+
+    return idtoken, refreshtoken
+
+
+def __do_context_validation(ctx):
     orchestrator_host = os.getenv('FABRIC_ORCHESTRATOR_HOST')
     if orchestrator_host is None or orchestrator_host == "":
         ctx.fail('FABRIC_ORCHESTRATOR_HOST is not set')
@@ -109,12 +136,12 @@ def issue(ctx):
         url = "https://{}/ui/".format(credmgr_host)
         webbrowser.open(url, new=2)
 
-        click.echo(f'After visiting the URL: {url}, use POST /tokens/create command to generate fabric_cli tokens')
+        click.echo(f'After visiting the URL: {url}, use POST /tokens/create command to generate fabrictestbed_cli tokens')
         click.echo('Set up the environment variables for FABRIC_ID_TOKEN and FABRIC_REFRESH_TOKEN')
 
     except TokenExpiredException as e:
         raise click.ClickException(str(e) +
-                                   ', use \'fabric_cli-cli token refresh\' to refresh token first')
+                                   ', use \'fabrictestbed_cli-cli token refresh\' to refresh token first')
     except Exception as e:
         raise click.ClickException(str(e))
 
@@ -129,9 +156,10 @@ def refresh(ctx, refreshtoken, projectname, scope):
     """Refresh token
     """
     credmgr_host = ctx.obj['credmgr_host']
-    result = do_refresh_token(credmgr_host=credmgr_host, projectname=projectname,
-                              scope=scope, refreshtoken=refreshtoken)
-    click.echo(json.dumps(result))
+    id_token, refresh_token = __do_refresh_token(credmgr_host=credmgr_host, projectname=projectname,
+                                                 scope=scope, refreshtoken=refreshtoken)
+    click.echo(f"ID Token: {id_token}")
+    click.echo(f"Refresh Token: {refresh_token}")
 
 
 @tokens.command()
@@ -141,15 +169,11 @@ def revoke(ctx, refreshtoken):
     """ Revoke token
     """
     credmgr_host = ctx.obj['credmgr_host']
-    if refreshtoken is None:
-        refreshtoken = os.getenv('FABRIC_REFRESH_TOKEN', None)
-        if refreshtoken is None:
-            raise click.ClickException('need refreshtoken parameter')
-    try:
-        res = CredmgrProxy(credmgr_host=credmgr_host).revoke(refresh_token=refreshtoken)
-        click.echo(json.dumps(res))
-    except Exception as e:
-        raise click.ClickException(str(e))
+    status, error_str = CredmgrProxy(credmgr_host=credmgr_host).revoke(refresh_token=refreshtoken)
+    if status == Status.OK:
+        click.echo("Token revoked successfully")
+    else:
+        raise click.ClickException(f"Token could not be revoked! Error encountered: {error_str}")
 
 
 @click.group()
@@ -158,7 +182,7 @@ def slices(ctx):
     """ Slice management
         (set $FABRIC_ORCHESTRATOR_HOST to the Orchestrator and set $FABRIC_CREDMGR_HOST to the Credential Manager Server)
     """
-    do_context_validation(ctx)
+    __do_context_validation(ctx)
 
 
 @slices.command()
@@ -172,24 +196,8 @@ def slices(ctx):
 def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, sliceid: str):
     """ Query user slice(s)
     """
-    tokens = None
-    if refreshtoken is None:
-        refreshtoken = os.getenv('FABRIC_REFRESH_TOKEN', None)
-
-    if refreshtoken is not None:
-        try:
-            credmgr_host = ctx.obj['credmgr_host']
-            tokens = do_refresh_token(credmgr_host=credmgr_host, projectname=projectname, scope=scope,
-                                      refreshtoken=refreshtoken)
-            idtoken = tokens.get('id_token', None)
-        except Exception as e:
-            raise click.ClickException('Not a valid refreshtoken! Error: {}'.format(e))
-
-    if idtoken is None:
-        idtoken = os.getenv('FABRIC_ID_TOKEN', None)
-        if idtoken is None:
-            raise click.ClickException(f'Either idtoken or refreshtoken must be specified or set environment variables '
-                                       f'FABRIC_ID_TOKEN or FABRIC_REFRESH_TOKEN')
+    idtoken, refreshtoken = __get_tokens(credmgr_host=ctx.obj['credmgr_host'], idtoken=idtoken,
+                                         refreshtoken=refreshtoken, projectname=projectname, scope=scope)
 
     try:
         proxy = OrchestratorProxy(orchestrator_host=ctx.obj['orchestrator_host'])
@@ -208,7 +216,7 @@ def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, sl
 
     except TokenExpiredException as e:
         raise click.ClickException(str(e) +
-                                   ', use \'fabric_cli-cli token refresh\' to refresh token first')
+                                   ', use \'fabric-cli token refresh\' to refresh token first')
     except Exception as e:
         raise click.ClickException(str(e))
 
@@ -222,33 +230,19 @@ def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, sl
 @click.option('--slicename', help='Slice Name', required=True)
 @click.option('--slicegraph', help='Slice Graph', required=True)
 @click.option('--sshkey', help='SSH Key', required=True)
+@click.option('--leaseend', help='Lease End', default=None)
 @click.pass_context
 def create(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, slicename: str, slicegraph: str,
-           sshkey: str):
+           sshkey: str, leaseend: str):
     """ Create user slice
     """
-    tokens = None
-    if refreshtoken is None:
-        refreshtoken = os.getenv('FABRIC_REFRESH_TOKEN', None)
-
-    if refreshtoken is not None:
-        try:
-            credmgr_host = ctx.obj['credmgr_host']
-            tokens = do_refresh_token(credmgr_host=credmgr_host, projectname=projectname, scope=scope,
-                                      refreshtoken=refreshtoken)
-            idtoken = tokens.get('id_token', None)
-        except Exception as e:
-            raise click.ClickException('Not a valid refreshtoken! Error: {}'.format(e))
-
-    if idtoken is None:
-        idtoken = os.getenv('FABRIC_ID_TOKEN', None)
-        if idtoken is None:
-            raise click.ClickException(f'Either idtoken or refreshtoken must be specified or set environment variables '
-                                       f'FABRIC_ID_TOKEN or FABRIC_REFRESH_TOKEN')
+    idtoken, refreshtoken = __get_tokens(credmgr_host=ctx.obj['credmgr_host'], idtoken=idtoken,
+                                         refreshtoken=refreshtoken, projectname=projectname, scope=scope)
 
     try:
         proxy = OrchestratorProxy(orchestrator_host=ctx.obj['orchestrator_host'])
-        status, response = proxy.create(token=idtoken, slice_name=slicename, slice_graph=slicegraph, ssh_key=sshkey)
+        status, response = proxy.create(token=idtoken, slice_name=slicename, slice_graph=slicegraph, ssh_key=sshkey,
+                                        lease_end_time=leaseend)
 
         if status == Status.OK:
             click.echo(json.dumps(response))
@@ -257,7 +251,7 @@ def create(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, s
 
     except TokenExpiredException as e:
         raise click.ClickException(str(e) +
-                                   ', use \'fabric_cli-cli token refresh\' to refresh token first')
+                                   ', use \'fabric-cli token refresh\' to refresh token first')
     except Exception as e:
         raise click.ClickException(str(e))
 
@@ -273,24 +267,8 @@ def create(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, s
 def delete(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, sliceid: str):
     """ Delete user slice
     """
-    tokens = None
-    if refreshtoken is None:
-        refreshtoken = os.getenv('FABRIC_REFRESH_TOKEN', None)
-
-    if refreshtoken is not None:
-        try:
-            credmgr_host = ctx.obj['credmgr_host']
-            tokens = do_refresh_token(credmgr_host=credmgr_host, projectname=projectname, scope=scope,
-                                      refreshtoken=refreshtoken)
-            idtoken = tokens.get('id_token', None)
-        except Exception as e:
-            raise click.ClickException('Not a valid refreshtoken! Error: {}'.format(e))
-
-    if idtoken is None:
-        idtoken = os.getenv('FABRIC_ID_TOKEN', None)
-        if idtoken is None:
-            raise click.ClickException(f'Either idtoken or refreshtoken must be specified or set environment variables '
-                                       f'FABRIC_ID_TOKEN or FABRIC_REFRESH_TOKEN')
+    idtoken, refreshtoken = __get_tokens(credmgr_host=ctx.obj['credmgr_host'], idtoken=idtoken,
+                                         refreshtoken=refreshtoken, projectname=projectname, scope=scope)
 
     try:
         proxy = OrchestratorProxy(orchestrator_host=ctx.obj['orchestrator_host'])
@@ -303,7 +281,7 @@ def delete(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, s
 
     except TokenExpiredException as e:
         raise click.ClickException(str(e) +
-                                   ', use \'fabric_cli-cli token refresh\' to refresh token first')
+                                   ', use \'fabric-cli token refresh\' to refresh token first')
     except Exception as e:
         raise click.ClickException(str(e))
 
@@ -314,7 +292,7 @@ def slivers(ctx):
     """ Sliver management
         (set $FABRIC_ORCHESTRATOR_HOST to the Orchestrator and set $FABRIC_CREDMGR_HOST to the Credential Manager Server)
     """
-    do_context_validation(ctx)
+    __do_context_validation(ctx)
 
 
 @slivers.command()
@@ -329,24 +307,8 @@ def slivers(ctx):
 def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, sliceid: str, sliverid: str):
     """ Query user slice sliver(s)
     """
-    tokens = None
-    if refreshtoken is None:
-        refreshtoken = os.getenv('FABRIC_REFRESH_TOKEN', None)
-
-    if refreshtoken is not None:
-        try:
-            credmgr_host = ctx.obj['credmgr_host']
-            tokens = do_refresh_token(credmgr_host=credmgr_host, projectname=projectname, scope=scope,
-                                      refreshtoken=refreshtoken)
-            idtoken = tokens.get('id_token', None)
-        except Exception as e:
-            raise click.ClickException('Not a valid refreshtoken! Error: {}'.format(e))
-
-    if idtoken is None:
-        idtoken = os.getenv('FABRIC_ID_TOKEN', None)
-        if idtoken is None:
-            raise click.ClickException(f'Either idtoken or refreshtoken must be specified or set environment variables'
-                                       f' FABRIC_ID_TOKEN or FABRIC_REFRESH_TOKEN')
+    idtoken, refreshtoken = __get_tokens(credmgr_host=ctx.obj['credmgr_host'], idtoken=idtoken,
+                                         refreshtoken=refreshtoken, projectname=projectname, scope=scope)
 
     try:
         proxy = OrchestratorProxy(orchestrator_host=ctx.obj['orchestrator_host'])
@@ -359,7 +321,7 @@ def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, sl
 
     except TokenExpiredException as e:
         raise click.ClickException(str(e) +
-                                   ', use \'fabric_cli-cli token refresh\' to refresh token first')
+                                   ', use \'fabric-cli token refresh\' to refresh token first')
     except Exception as e:
         raise click.ClickException(str(e))
 
@@ -370,7 +332,7 @@ def resources(ctx):
     """ Resource management
         (set $FABRIC_ORCHESTRATOR_HOST to the Orchestrator and set $FABRIC_CREDMGR_HOST to the Credential Manager Server)
     """
-    do_context_validation(ctx)
+    __do_context_validation(ctx)
 
 
 @resources.command()
@@ -383,24 +345,8 @@ def resources(ctx):
 def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str):
     """ Query resources
     """
-    tokens = None
-    if refreshtoken is None:
-        refreshtoken = os.getenv('FABRIC_REFRESH_TOKEN', None)
-
-    if refreshtoken is not None:
-        try:
-            credmgr_host = ctx.obj['credmgr_host']
-            tokens = do_refresh_token(credmgr_host=credmgr_host, projectname=projectname, scope=scope,
-                                      refreshtoken=refreshtoken)
-            idtoken = tokens.get('id_token', None)
-        except Exception as e:
-            raise click.ClickException('Not a valid refreshtoken! Error: {}'.format(e))
-
-    if idtoken is None:
-        idtoken = os.getenv('FABRIC_ID_TOKEN', None)
-        if idtoken is None: 
-            raise click.ClickException(f'Either idtoken or refreshtoken must be specified or set environment variables'
-                                       f' FABRIC_ID_TOKEN or FABRIC_REFRESH_TOKEN')
+    idtoken, refreshtoken = __get_tokens(credmgr_host=ctx.obj['credmgr_host'], idtoken=idtoken,
+                                         refreshtoken=refreshtoken, projectname=projectname, scope=scope)
 
     try:
         proxy = OrchestratorProxy(orchestrator_host=ctx.obj['orchestrator_host'])
@@ -413,7 +359,7 @@ def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str):
 
     except TokenExpiredException as e:
         raise click.ClickException(str(e) +
-                                   ', use \'fabric_cli-cli token refresh\' to refresh token first')
+                                   ', use \'fabric-cli token refresh\' to refresh token first')
     except Exception as e:
         raise click.ClickException(str(e))
 

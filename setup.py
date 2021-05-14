@@ -22,7 +22,7 @@ setuptools.setup(
     install_requires=requirements,
     entry_points='''
         [console_scripts]
-        fabric-cli=fabric_cli.cli.cli:cli
+        fabric-cli=fabrictestbed_cli.cli:cli
     ''',
     classifiers=[
                   "Programming Language :: Python :: 3",
