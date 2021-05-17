@@ -58,6 +58,8 @@ class ApiClient:
     def refresh_tokens(self) -> Tuple[str, str]:
         """
         Refresh tokens
+        User is expected to invoke refresh token API before invoking any other APIs to ensure the token is not expired.
+        User is also expected to update the returned refresh token in the JupyterHub environment.
         """
         status, id_token, self.refresh_token = self.cm_proxy.refresh(project_name=self.project_name, scope=self.scope,
                                                                      refresh_token=self.refresh_token)
