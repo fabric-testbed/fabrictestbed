@@ -65,15 +65,19 @@ Or run the eval command directly in your current shell to enable it temporarily.
 ## Usage (API)
 User API supports token and orchestrator commands:
 ```
-from fabrictestbed_cli.api.api_client import ApiClient, Status
-from fabrictestbed_cli.user import ExperimentTopology, Capacities, ComponentType
+from fabrictestbed.slice_manager.slice_manager import SliceManager, Status
+from fabrictestbed.slice_editor import ExperimentTopology, Capacities, ComponentType
+
+orchestrator_host = "<ORCHESTRATOR FQDN>"
+credmgr_host = "<CREDENTIAL MANAGER FQDN>"
+fabric_refresh_token = "<REFRESH TOKEN>"
 
 # Create API Client object
-# Users can request tokens with different Project and Scopes by altering `project_name` and `scope` 
+# Users can request tokens with different Project and Scopes by altering `project_name` and `scope`
 # parameters in the refresh call below.
-client = ApiClient(oc_host=orchestrator_host, cm_host=credmgr_host, 
-                   refresh_token=fabric_refresh_token, project_name='all', scope='all')
-                   
+client = SliceManager(oc_host=orchestrator_host, cm_host=credmgr_host,
+                      refresh_token=fabric_refresh_token, project_name='all', scope='all')
+
 # Get new Fabric Identity Token and update Fabric Refresh Token
 try:
     id_token, refresh_token = client.refresh_tokens()
@@ -130,9 +134,9 @@ n3.add_component(ctype=ComponentType.GPU, model='Tesla T4', name='nic3')
 slice_graph = t.serialize()
 
 ssh_key = None
-with open ("/home/fabric/.ssh/id_rsa.pub", "r") as myfile:
-    ssh_key=myfile.read()
-    ssh_key=ssh_key.strip()
+with open("/home/fabric/.ssh/id_rsa.pub", "r") as myfile:
+    ssh_key = myfile.read()
+    ssh_key = ssh_key.strip()
 
 # Request slice from Orchestrator
 status, reservations = client.create(slice_name='JupyterSlice2', slice_graph=slice_graph, ssh_key=ssh_key)
@@ -141,6 +145,7 @@ print("Response Status {}".format(status))
 if status == Status.OK:
     print("Reservations created {}".format(reservations))
 
+slice_id = reservations[0].slice_id
 # Delete Slice
 status, result = client.delete(slice_id=slice_id)
 

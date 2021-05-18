@@ -27,16 +27,16 @@ from typing import Tuple, Union, List
 
 from fabric_cf.orchestrator.elements.reservation import Reservation
 
-from fabrictestbed_cli.user import ExperimentTopology
+from fabrictestbed.slice_editor import ExperimentTopology
 
-from fabrictestbed_cli.api import CredmgrProxy, OrchestratorProxy, Status, CmStatus, Slice, AdvertizedTopology
-
-
-class ApiClientException(Exception):
-    """ API Client Exception """
+from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, Status, CmStatus, Slice, AdvertizedTopology
 
 
-class ApiClient:
+class SliceManagerException(Exception):
+    """ Slice Manager Exception """
+
+
+class SliceManager:
     """
     Implements User facing Control Framework API interface
     """
@@ -55,6 +55,9 @@ class ApiClient:
     def get_id_token(self) -> str:
         return self.id_token
 
+    def set_id_token(self, id_token: str):
+        self.id_token = id_token
+
     def refresh_tokens(self) -> Tuple[str, str]:
         """
         Refresh tokens
@@ -66,7 +69,7 @@ class ApiClient:
         if status == CmStatus.OK:
             self.id_token = id_token
             return self.id_token, self.refresh_token
-        raise ApiClientException(id_token)
+        raise SliceManagerException(id_token)
 
     def create(self, *, slice_name: str, ssh_key: str, topology: ExperimentTopology = None, slice_graph: str = None,
                lease_end_time: str = None) -> Tuple[Status, Union[Exception, List[Reservation]]]:

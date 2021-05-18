@@ -1,6 +1,6 @@
 import setuptools
 
-VERSION = "0.15"
+VERSION = "0.1"
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
@@ -9,7 +9,7 @@ with open("requirements.txt", "r") as fh:
     requirements = fh.read()
 
 setuptools.setup(
-    name='fabrictestbed-cli',
+    name='fabrictestbed',
     version=VERSION,
     author="Erica Fu, Komal Thareja",
     author_email="ericafu@renci.org, kthare10@unc.edu",
@@ -22,7 +22,7 @@ setuptools.setup(
     install_requires=requirements,
     entry_points='''
         [console_scripts]
-        fabric-cli=fabrictestbed_cli.cli:cli
+        fabric-cli=fabrictestbed.cli.cli:cli
     ''',
     classifiers=[
                   "Programming Language :: Python :: 3",
