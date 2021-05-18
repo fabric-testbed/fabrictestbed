@@ -25,11 +25,8 @@
 # Author: Komal Thareja (kthare10@renci.org)
 from typing import Tuple, Union, List, Any
 
-from fabric_cf.orchestrator.elements.reservation import Reservation
-
-from fabrictestbed.slice_editor import ExperimentTopology
-
-from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, Status, CmStatus, Slice, AdvertizedTopology
+from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology
+from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, CmStatus, Status, Reservation, Slice
 
 
 class SliceManagerException(Exception):
@@ -143,7 +140,7 @@ class SliceManager:
         """
         return self.oc_proxy.sliver_status(token=self.id_token, slice_id=slice_id, sliver_id=sliver_id)
 
-    def resources(self, *, level: int = 1) -> Tuple[Status, Union[Exception, AdvertizedTopology]]:
+    def resources(self, *, level: int = 1) -> Tuple[Status, Union[Exception, AdvertisedTopology]]:
         """
         Get resources
         @param level level
