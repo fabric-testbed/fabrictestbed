@@ -23,7 +23,7 @@
 #
 #
 # Author: Komal Thareja (kthare10@renci.org)
-from typing import Tuple, Union, List
+from typing import Tuple, Union, List, Any
 
 from fabric_cf.orchestrator.elements.reservation import Reservation
 
@@ -70,6 +70,15 @@ class SliceManager:
             self.id_token = id_token
             return self.id_token, self.refresh_token
         raise SliceManagerException(id_token)
+
+    def revoke_token(self, refresh_token: str = None) -> Tuple[Status, Any]:
+        token_to_be_revoked = refresh_token
+        if token_to_be_revoked is None and self.refresh_token is not None:
+            token_to_be_revoked = self.refresh_token
+
+        if token_to_be_revoked is not None:
+            return self.cm_proxy.revoke(refresh_token=token_to_be_revoked)
+        return Status.OK, None
 
     def create(self, *, slice_name: str, ssh_key: str, topology: ExperimentTopology = None, slice_graph: str = None,
                lease_end_time: str = None) -> Tuple[Status, Union[Exception, List[Reservation]]]:

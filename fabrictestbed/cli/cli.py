@@ -30,11 +30,11 @@ import os
 
 
 from .exceptions import TokenExpiredException
-from ..slice_manager.slice_manager import SliceManager, CredmgrProxy, Status
+from ..slice_manager.slice_manager import SliceManager, Status
 
 
-def __get_slice_manager(*, oc_host: str, cm_host: str, project_name: str, scope: str, id_token: str,
-                        refresh_token: str) -> SliceManager:
+def __get_slice_manager(*, oc_host: str = None, cm_host: str, project_name: str = None, scope: str = None,
+                        id_token: str = None, refresh_token: str, do_not_refresh: bool = False) -> SliceManager:
     """
     Get Environment Variables
     @param oc_host Orchestrator host
@@ -74,12 +74,13 @@ def __get_slice_manager(*, oc_host: str, cm_host: str, project_name: str, scope:
     if id_token is not None:
         slice_manager.set_id_token(id_token=id_token)
     else:
-        slice_manager.refresh_tokens()
-        click.echo()
-        click.echo("NOTE: Please reset your environment variable by executing the following command:")
-        cmd = f"export FABRIC_REFRESH_TOKEN={slice_manager.get_refresh_token()}"
-        print(cmd)
-        click.echo()
+        if not do_not_refresh:
+            slice_manager.refresh_tokens()
+            click.echo()
+            click.echo("NOTE: Please reset your environment variable by executing the following command:")
+            cmd = f"export FABRIC_REFRESH_TOKEN={slice_manager.get_refresh_token()}"
+            print(cmd)
+            click.echo()
 
     return slice_manager
 
@@ -145,9 +146,8 @@ def issue(ctx):
 def refresh(ctx, refreshtoken, projectname, scope):
     """Refresh token
     """
-    slice_manager = __get_slice_manager(oc_host=None, cm_host=ctx.obj['credmgr_host'],
-                                        project_name=projectname, scope=scope,
-                                        id_token=None, refresh_token=refreshtoken)
+    slice_manager = __get_slice_manager(cm_host=ctx.obj['credmgr_host'], project_name=projectname, scope=scope,
+                                        refresh_token=refreshtoken)
     slice_manager.refresh_tokens()
 
     click.echo(f"ID Token: {slice_manager.get_id_token()}")
@@ -160,8 +160,10 @@ def refresh(ctx, refreshtoken, projectname, scope):
 def revoke(ctx, refreshtoken):
     """ Revoke token
     """
-    credmgr_host = ctx.obj['credmgr_host']
-    status, error_str = CredmgrProxy(credmgr_host=credmgr_host).revoke(refresh_token=refreshtoken)
+    slice_manager = __get_slice_manager(cm_host=ctx.obj['credmgr_host'],
+                                        refresh_token=refreshtoken, do_not_refresh=True)
+
+    status, error_str = slice_manager.revoke_token()
     if status == Status.OK:
         click.echo("Token revoked successfully")
     else:
