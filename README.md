@@ -65,7 +65,7 @@ Or run the eval command directly in your current shell to enable it temporarily.
 ## Usage (API)
 User API supports token and orchestrator commands:
 ```
-from fabrictestbed.slice_manager.slice_manager import SliceManager, Status
+from fabrictestbed.slice_manager import SliceManager, Status
 from fabrictestbed.slice_editor import ExperimentTopology, Capacities, ComponentType
 
 orchestrator_host = "<ORCHESTRATOR FQDN>"
