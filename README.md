@@ -3,17 +3,18 @@
 [![PyPI](https://img.shields.io/pypi/v/fabric-cli?style=plastic)](https://pypi.org/project/fabric-cli/)
 
 
-# FABRIC User CLI
+# FABRIC TESTBED USER LIBRARY AND CLI
 
 Fabric User CLI for experiments
 
 ## Overview
-User CLI supports following kinds commands:
+This package supports User facing APIs as well as CLI.
 - Tokens: Token management
 - Slices: Slice management
 - Slivers: Sliver management
 - Resources: Resource management
 
+### CLI Commands
 Command | SubCommand | Action | Input | Output
 :--------|:----:|:----:|:---:|:---:
 `tokens` | `issue`| Issue token with projectname and scope | `projectname` Project Name, `scope` Scope | Points user to Credential Manager to generate the tokens
@@ -24,6 +25,9 @@ Command | SubCommand | Action | Input | Output
 `slices` | `delete` | Delete user slice |  `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectname` Project Name, `scope` Scope, `sliceid` Slice Id | Success or Failure Status
 `slivers` | `query` | Query user sliver(s) |  `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectname` Project Name, `scope` Scope, `sliceid` Slice Id, `sliverid` Sliver Id | List of Slivers for the slice identified by Slice Id or Sliver identified by Sliver Id
 `resources` | `query` | Query resources | `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectname` Project Name, `scope` Scope | Graph ML representing the available resources
+
+### API
+`SliceManager` class implements the API supporting the operations listed above. Check example in Usage below.
 
 ## Requirements
 Python 3.7+
@@ -36,31 +40,16 @@ Ensure that following are installed
 ## Installation
 Multiple installation options possible. For CF development the recommended method is to install from GitHub MASTER branch:
 ```
-$ mkvirtualenv usercli
-$ workon usercli
+$ mkvirtualenv fabrictestbed
+$ workon fabrictestbed
 $ pip install git+https://github.com/fabric-testbed/fabric-cli.git
 ```
 For inclusion in tools, etc, use PyPi
 ```
-$ mkvirtualenv usercli
-$ workon usercli
-$ pip install fabric-cli
+$ mkvirtualenv fabrictestbed
+$ workon fabrictestbed
+$ pip install fabrictestbed
 ```
-
-## Configuration
-User CLI expects the user to set `FABRIC_ORCHESTRATOR_HOST` and `FABRIC_CREDMGR_HOST` environment variables. 
-
-In addition, User is expected to pass either Fabric Identity Token or Fabric Refresh Token to all the orchestrator commands. 
-Alternatively, user is expected to set atleast one of the environment variables `FABRIC_ID_TOKEN` and `FABRIC_REFRESH_TOKEN`.
-
-Create config.yml with default content as shown below. 
- 
-### To enable CLI auto-completion, add following line to your ~/.bashrc
-```
-eval "$(_FABRIC_CLI_COMPLETE=source_bash fabric-cli)"
-```
-Open a new shell to enable completion.
-Or run the eval command directly in your current shell to enable it temporarily.
 
 ## Usage (API)
 User API supports token and orchestrator commands:
@@ -155,6 +144,21 @@ if status == Status.OK:
 ```
 
 ## Usage (CLI)
+### Configuration
+User CLI expects the user to set `FABRIC_ORCHESTRATOR_HOST` and `FABRIC_CREDMGR_HOST` environment variables. 
+
+In addition, User is expected to pass either Fabric Identity Token or Fabric Refresh Token to all the orchestrator commands. 
+Alternatively, user is expected to set atleast one of the environment variables `FABRIC_ID_TOKEN` and `FABRIC_REFRESH_TOKEN`.
+
+Create config.yml with default content as shown below. 
+ 
+#### To enable CLI auto-completion, add following line to your ~/.bashrc
+```
+eval "$(_FABRIC_CLI_COMPLETE=source_bash fabric-cli)"
+```
+Open a new shell to enable completion.
+Or run the eval command directly in your current shell to enable it temporarily.
+
 User CLI supports token and orchestrator commands:
 ```
 (usercli) $ fabric-cli
