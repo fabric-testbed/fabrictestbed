@@ -23,75 +23,66 @@
 #
 #
 # Author: Erica Fu (ericafu@renci.org), Komal Thareja (kthare10@renci.org)
-import traceback
 import webbrowser
-from typing import Tuple
 
 import click
 import os
-import json
 
-from .api import CredmgrProxy, OrchestratorProxy, Status, CmStatus
 
 from .exceptions import TokenExpiredException
+from ..slice_manager.slice_manager import SliceManager, Status
 
 
-def __do_refresh_token(*, credmgr_host: str, projectname: str, scope: str, refreshtoken: str) -> Tuple[str, str]:
+def __get_slice_manager(*, oc_host: str = None, cm_host: str, project_name: str = None, scope: str = None,
+                        id_token: str = None, refresh_token: str, do_not_refresh: bool = False) -> SliceManager:
     """
-    Refresh Token by invoking Credential Manager Proxy
-    @param credmgr_host Credential Manager
-    @param projectname Project Name
+    Get Environment Variables
+    @param oc_host Orchestrator host
+    @param cm_host Credmgr Host
+    @param project_name Project Name
     @param scope Scope
-    @param refreshtoken Refresh Token
-    @return Id token and Refresh Token
+    @param id_token Id Token
+    @param refresh_token Refresh Token
     @raises ClickException in case of error
     """
-    if projectname is None:
-        projectname = os.getenv('FABRIC_PROJECT_NAME', 'all')
-        if projectname == '':
-            projectname = 'all'
+    # Grab ID Token from Environment variable, if not available
+    if id_token is None:
+        id_token = os.getenv('FABRIC_ID_TOKEN', None)
+
+    # Grab Project Name from Environment variable, if not available
+    if project_name is None:
+        project_name = os.getenv('FABRIC_PROJECT_NAME', 'all')
+        if project_name == '':
+            project_name = 'all'
+
+    # Grab Scope from Environment variable, if not available
     if scope is None:
         scope = os.getenv('FABRIC_SCOPE', 'all')
         if scope == '':
             scope = 'all'
 
-    if refreshtoken is None:
-        refreshtoken = os.getenv('FABRIC_REFRESH_TOKEN', None)
-        if refreshtoken is None:
+    # Grab Refresh from Environment variable, if not available
+    if id_token is None and refresh_token is None:
+        refresh_token = os.getenv('FABRIC_REFRESH_TOKEN', None)
+        if refresh_token is None:
             raise click.ClickException(f'Either specify refreshtoken parameter or set '
                                        f'FABRIC_REFRESH_TOKEN environment variable')
 
-    cm_proxy = CredmgrProxy(credmgr_host=credmgr_host)
-    status, id_token_or_error, refresh_token = cm_proxy.refresh(project_name=projectname, scope=scope,
-                                                                refresh_token=refreshtoken)
-    if status == CmStatus.OK:
-        click.echo()
-        click.echo("NOTE: Please reset your environment variable")
-        cmd = f"export FABRIC_REFRESH_TOKEN={refresh_token}"
-        print(cmd)
-        click.echo("NOTE: Please reset your environment variable")
-        click.echo()
-        return id_token_or_error, refresh_token
+    slice_manager = SliceManager(oc_host=oc_host, cm_host=cm_host, project_name=project_name, scope=scope,
+                                 refresh_token=refresh_token)
+
+    if id_token is not None:
+        slice_manager.set_id_token(id_token=id_token)
     else:
-        raise click.ClickException(id_token_or_error)
+        if not do_not_refresh:
+            slice_manager.refresh_tokens()
+            click.echo()
+            click.echo("NOTE: Please reset your environment variable by executing the following command:")
+            cmd = f"export FABRIC_REFRESH_TOKEN={slice_manager.get_refresh_token()}"
+            print(cmd)
+            click.echo()
 
-
-def __get_tokens(*, credmgr_host: str, idtoken: str, refreshtoken: str, projectname: str,
-                 scope: str) -> Tuple[str, str]:
-    """
-    Get Tokens for Orchestrator APIs using either FABRIC_ID_TOKEN or FABRIC_REFRESH_TOKEN environment variables
-    """
-    if refreshtoken is not None:
-        idtoken, refreshtoken = __do_refresh_token(credmgr_host=credmgr_host, projectname=projectname,
-                                                   scope=scope, refreshtoken=refreshtoken)
-
-    if idtoken is None:
-        idtoken = os.getenv('FABRIC_ID_TOKEN', None)
-        if idtoken is None:
-            raise click.ClickException(f'Either idtoken or refreshtoken must be specified or set environment variables '
-                                       f'FABRIC_ID_TOKEN or FABRIC_REFRESH_TOKEN')
-
-    return idtoken, refreshtoken
+    return slice_manager
 
 
 def __do_context_validation(ctx):
@@ -136,12 +127,12 @@ def issue(ctx):
         url = "https://{}/ui/".format(credmgr_host)
         webbrowser.open(url, new=2)
 
-        click.echo(f'After visiting the URL: {url}, use POST /tokens/create command to generate fabrictestbed_cli tokens')
+        click.echo(f'After visiting the URL: {url}, use POST /tokens/create command to generate fabrictestbed tokens')
         click.echo('Set up the environment variables for FABRIC_ID_TOKEN and FABRIC_REFRESH_TOKEN')
 
     except TokenExpiredException as e:
         raise click.ClickException(str(e) +
-                                   ', use \'fabrictestbed_cli-cli token refresh\' to refresh token first')
+                                   ', use \'fabrictestbed-cli token refresh\' to refresh token first')
     except Exception as e:
         raise click.ClickException(str(e))
 
@@ -155,11 +146,12 @@ def issue(ctx):
 def refresh(ctx, refreshtoken, projectname, scope):
     """Refresh token
     """
-    credmgr_host = ctx.obj['credmgr_host']
-    id_token, refresh_token = __do_refresh_token(credmgr_host=credmgr_host, projectname=projectname,
-                                                 scope=scope, refreshtoken=refreshtoken)
-    click.echo(f"ID Token: {id_token}")
-    click.echo(f"Refresh Token: {refresh_token}")
+    slice_manager = __get_slice_manager(cm_host=ctx.obj['credmgr_host'], project_name=projectname, scope=scope,
+                                        refresh_token=refreshtoken)
+    slice_manager.refresh_tokens()
+
+    click.echo(f"ID Token: {slice_manager.get_id_token()}")
+    click.echo(f"Refresh Token: {slice_manager.get_refresh_token()}")
 
 
 @tokens.command()
@@ -168,8 +160,10 @@ def refresh(ctx, refreshtoken, projectname, scope):
 def revoke(ctx, refreshtoken):
     """ Revoke token
     """
-    credmgr_host = ctx.obj['credmgr_host']
-    status, error_str = CredmgrProxy(credmgr_host=credmgr_host).revoke(refresh_token=refreshtoken)
+    slice_manager = __get_slice_manager(cm_host=ctx.obj['credmgr_host'],
+                                        refresh_token=refreshtoken, do_not_refresh=True)
+
+    status, error_str = slice_manager.revoke_token()
     if status == Status.OK:
         click.echo("Token revoked successfully")
     else:
@@ -194,23 +188,22 @@ def slices(ctx):
 @click.option('--sliceid', default=None, help='Slice Id')
 @click.pass_context
 def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, sliceid: str):
-    """ Query user slice(s)
+    """ Query slice_editor slice(s)
     """
-    idtoken, refreshtoken = __get_tokens(credmgr_host=ctx.obj['credmgr_host'], idtoken=idtoken,
-                                         refreshtoken=refreshtoken, projectname=projectname, scope=scope)
-
     try:
-        proxy = OrchestratorProxy(orchestrator_host=ctx.obj['orchestrator_host'])
+        slice_manager = __get_slice_manager(oc_host=ctx.obj['orchestrator_host'], cm_host=ctx.obj['credmgr_host'],
+                                            project_name=projectname, scope=scope,
+                                            id_token=idtoken, refresh_token=refreshtoken)
         status = None
         response = None
 
         if sliceid is None:
-            status, response = proxy.slices(token=idtoken)
+            status, response = slice_manager.slices()
         else:
-            status, response = proxy.get_slice(token=idtoken, slice_id=sliceid)
+            status, response = slice_manager.get_slice(slice_id=sliceid)
 
         if status == Status.OK:
-            click.echo(json.dumps(response))
+            click.echo(response)
         else:
             click.echo(f'Query Slice(s) failed: {status.interpret(exception=response)}')
 
@@ -234,18 +227,17 @@ def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, sl
 @click.pass_context
 def create(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, slicename: str, slicegraph: str,
            sshkey: str, leaseend: str):
-    """ Create user slice
+    """ Create slice_editor slice
     """
-    idtoken, refreshtoken = __get_tokens(credmgr_host=ctx.obj['credmgr_host'], idtoken=idtoken,
-                                         refreshtoken=refreshtoken, projectname=projectname, scope=scope)
-
     try:
-        proxy = OrchestratorProxy(orchestrator_host=ctx.obj['orchestrator_host'])
-        status, response = proxy.create(token=idtoken, slice_name=slicename, slice_graph=slicegraph, ssh_key=sshkey,
+        slice_manager = __get_slice_manager(oc_host=ctx.obj['orchestrator_host'], cm_host=ctx.obj['credmgr_host'],
+                                            project_name=projectname, scope=scope,
+                                            id_token=idtoken, refresh_token=refreshtoken)
+        status, response = slice_manager.create(slice_name=slicename, slice_graph=slicegraph, ssh_key=sshkey,
                                         lease_end_time=leaseend)
 
         if status == Status.OK:
-            click.echo(json.dumps(response))
+            click.echo(response)
         else:
             click.echo(f'Create Slice failed: {status.interpret(exception=response)}')
 
@@ -265,17 +257,16 @@ def create(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, s
 @click.option('--sliceid', help='Slice Id', required=True)
 @click.pass_context
 def delete(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, sliceid: str):
-    """ Delete user slice
+    """ Delete slice_editor slice
     """
-    idtoken, refreshtoken = __get_tokens(credmgr_host=ctx.obj['credmgr_host'], idtoken=idtoken,
-                                         refreshtoken=refreshtoken, projectname=projectname, scope=scope)
-
     try:
-        proxy = OrchestratorProxy(orchestrator_host=ctx.obj['orchestrator_host'])
-        status, response = proxy.delete(token=idtoken, slice_id=sliceid)
+        slice_manager = __get_slice_manager(oc_host=ctx.obj['orchestrator_host'], cm_host=ctx.obj['credmgr_host'],
+                                            project_name=projectname, scope=scope,
+                                            id_token=idtoken, refresh_token=refreshtoken)
+        status, response = slice_manager.delete(slice_id=sliceid)
 
         if status == Status.OK:
-            click.echo(json.dumps(response))
+            click.echo(response)
         else:
             click.echo(f'Delete Slice failed: {status.interpret(exception=response)}')
 
@@ -305,17 +296,17 @@ def slivers(ctx):
 @click.option('--sliverid', default=None, help='Sliver Id')
 @click.pass_context
 def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, sliceid: str, sliverid: str):
-    """ Query user slice sliver(s)
+    """ Query slice_editor slice sliver(s)
     """
-    idtoken, refreshtoken = __get_tokens(credmgr_host=ctx.obj['credmgr_host'], idtoken=idtoken,
-                                         refreshtoken=refreshtoken, projectname=projectname, scope=scope)
-
     try:
-        proxy = OrchestratorProxy(orchestrator_host=ctx.obj['orchestrator_host'])
-        status, response = proxy.slivers(token=idtoken, slice_id=sliceid, sliver_id=sliverid)
+        slice_manager = __get_slice_manager(oc_host=ctx.obj['orchestrator_host'], cm_host=ctx.obj['credmgr_host'],
+                                            project_name=projectname, scope=scope,
+                                            id_token=idtoken, refresh_token=refreshtoken)
+
+        status, response = slice_manager.slivers(slice_id=sliceid, sliver_id=sliverid)
 
         if status == Status.OK:
-            click.echo(json.dumps(response))
+            click.echo(response)
         else:
             click.echo(f'Query Sliver(s) failed: {status.interpret(exception=response)}')
 
@@ -345,15 +336,15 @@ def resources(ctx):
 def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str):
     """ Query resources
     """
-    idtoken, refreshtoken = __get_tokens(credmgr_host=ctx.obj['credmgr_host'], idtoken=idtoken,
-                                         refreshtoken=refreshtoken, projectname=projectname, scope=scope)
-
     try:
-        proxy = OrchestratorProxy(orchestrator_host=ctx.obj['orchestrator_host'])
-        status, response = proxy.resources(token=idtoken)
+        slice_manager = __get_slice_manager(oc_host=ctx.obj['orchestrator_host'], cm_host=ctx.obj['credmgr_host'],
+                                            project_name=projectname, scope=scope,
+                                            id_token=idtoken, refresh_token=refreshtoken)
+
+        status, response = slice_manager.resources()
 
         if status == Status.OK:
-            click.echo(json.dumps(response))
+            click.echo(response)
         else:
             click.echo(f'Query Resources failed: {status.interpret(exception=response)}')
 

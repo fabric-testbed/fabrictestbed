@@ -3,17 +3,18 @@
 [![PyPI](https://img.shields.io/pypi/v/fabrictestbed?style=plastic)](https://pypi.org/project/fabrictestbed/)
 
 
-# FABRIC User CLI
+# FABRIC TESTBED USER LIBRARY AND CLI
 
 Fabric User CLI for experiments
 
 ## Overview
-User CLI supports following kinds commands:
+This package supports User facing APIs as well as CLI.
 - Tokens: Token management
 - Slices: Slice management
 - Slivers: Sliver management
 - Resources: Resource management
 
+### CLI Commands
 Command | SubCommand | Action | Input | Output
 :--------|:----:|:----:|:---:|:---:
 `tokens` | `issue`| Issue token with projectname and scope | `projectname` Project Name, `scope` Scope | Points user to Credential Manager to generate the tokens
@@ -24,6 +25,9 @@ Command | SubCommand | Action | Input | Output
 `slices` | `delete` | Delete user slice |  `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectname` Project Name, `scope` Scope, `sliceid` Slice Id | Success or Failure Status
 `slivers` | `query` | Query user sliver(s) |  `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectname` Project Name, `scope` Scope, `sliceid` Slice Id, `sliverid` Sliver Id | List of Slivers for the slice identified by Slice Id or Sliver identified by Sliver Id
 `resources` | `query` | Query resources | `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectname` Project Name, `scope` Scope | Graph ML representing the available resources
+
+### API
+`SliceManager` class implements the API supporting the operations listed above. Check example in Usage below.
 
 ## Requirements
 Python 3.7+
@@ -36,18 +40,111 @@ Ensure that following are installed
 ## Installation
 Multiple installation options possible. For CF development the recommended method is to install from GitHub MASTER branch:
 ```
-$ mkvirtualenv usercli
-$ workon usercli
+$ mkvirtualenv fabrictestbed
+$ workon fabrictestbed
 $ pip install git+https://github.com/fabric-testbed/fabric-cli.git
 ```
 For inclusion in tools, etc, use PyPi
 ```
-$ mkvirtualenv usercli
-$ workon usercli
-$ pip install fabric-cli
+$ mkvirtualenv fabrictestbed
+$ workon fabrictestbed
+$ pip install fabrictestbed
 ```
 
-## Configuration
+## Usage (API)
+User API supports token and orchestrator commands:
+```
+from fabrictestbed.slice_manager import SliceManager, Status
+from fabrictestbed.slice_editor import ExperimentTopology, Capacities, ComponentType
+
+orchestrator_host = "<ORCHESTRATOR FQDN>"
+credmgr_host = "<CREDENTIAL MANAGER FQDN>"
+fabric_refresh_token = "<REFRESH TOKEN>"
+
+# Create API Client object
+# Users can request tokens with different Project and Scopes by altering `project_name` and `scope`
+# parameters in the refresh call below.
+client = SliceManager(oc_host=orchestrator_host, cm_host=credmgr_host,
+                      refresh_token=fabric_refresh_token, project_name='all', scope='all')
+
+# Get new Fabric Identity Token and update Fabric Refresh Token
+try:
+    id_token, refresh_token = client.refresh_tokens()
+except Exception as e:
+    print("Exception occurred while getting tokens:{}".format(e))
+
+# User is expected to update the refresh token in JupyterHub environment such as below
+# fabric_refresh_token=client.get_refresh_token()
+# %store fabric_refresh_token
+
+# Query Resources
+status, advertised_topology = client.resources()
+
+print(f"Status: {status}")
+if status == Status.OK:
+    print(f"Toplogy: {advertised_topology}")
+
+# Create Slice
+# Create topology
+t = ExperimentTopology()
+
+# Add node
+n1 = t.add_node(name='n1', site='RENC')
+
+# Set capacities
+cap = Capacities()
+cap.set_fields(core=4, ram=64, disk=500)
+
+# Set Properties
+n1.set_properties(capacities=cap, image_type='qcow2', image_ref='default_centos_8')
+
+# Add PCI devices
+n1.add_component(ctype=ComponentType.SmartNIC, model='ConnectX-5', name='nic1')
+
+# Add node
+n2 = t.add_node(name='n2', site='UKY')
+
+# Set properties
+n2.set_properties(capacities=cap, image_type='qcow2', image_ref='default_centos_8')
+
+# Add PCI devices
+n2.add_component(ctype=ComponentType.GPU, model='Tesla T4', name='nic2')
+
+# Add node
+n3 = t.add_node(name='n3', site='LBNL')
+
+# Set properties
+n3.set_properties(capacities=cap, image_type='qcow2', image_ref='default_centos_8')
+
+# Add PCI devices
+n3.add_component(ctype=ComponentType.GPU, model='Tesla T4', name='nic3')
+
+# Generate Slice Graph
+slice_graph = t.serialize()
+
+ssh_key = None
+with open("/home/fabric/.ssh/id_rsa.pub", "r") as myfile:
+    ssh_key = myfile.read()
+    ssh_key = ssh_key.strip()
+
+# Request slice from Orchestrator
+status, reservations = client.create(slice_name='JupyterSlice2', slice_graph=slice_graph, ssh_key=ssh_key)
+
+print("Response Status {}".format(status))
+if status == Status.OK:
+    print("Reservations created {}".format(reservations))
+
+slice_id = reservations[0].slice_id
+# Delete Slice
+status, result = client.delete(slice_id=slice_id)
+
+print("Response Status {}".format(status))
+if status == Status.OK:
+    print("Response received {}".format(result))
+```
+
+## Usage (CLI)
+### Configuration
 User CLI expects the user to set `FABRIC_ORCHESTRATOR_HOST` and `FABRIC_CREDMGR_HOST` environment variables. 
 
 In addition, User is expected to pass either Fabric Identity Token or Fabric Refresh Token to all the orchestrator commands. 
@@ -55,15 +152,14 @@ Alternatively, user is expected to set atleast one of the environment variables 
 
 Create config.yml with default content as shown below. 
  
-### To enable CLI auto-completion, add following line to your ~/.bashrc
+#### To enable CLI auto-completion, add following line to your ~/.bashrc
 ```
 eval "$(_FABRIC_CLI_COMPLETE=source_bash fabric-cli)"
 ```
 Open a new shell to enable completion.
 Or run the eval command directly in your current shell to enable it temporarily.
 
-## Usage
-User CLI supports token and resources commands:
+User CLI supports token and orchestrator commands:
 ```
 (usercli) $ fabric-cli
 Usage: fabric-cli [OPTIONS] COMMAND [ARGS]...

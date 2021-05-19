@@ -23,20 +23,17 @@
 #
 #
 # Author: Komal Thareja (kthare10@renci.org)
-from typing import Tuple, Union, List
+from typing import Tuple, Union, List, Any
 
-from fabric_cf.orchestrator.elements.reservation import Reservation
-
-from fabrictestbed_cli.user import ExperimentTopology
-
-from fabrictestbed_cli.api import CredmgrProxy, OrchestratorProxy, Status, CmStatus, Slice, AdvertizedTopology
+from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology
+from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, CmStatus, Status, Reservation, Slice
 
 
-class ApiClientException(Exception):
-    """ API Client Exception """
+class SliceManagerException(Exception):
+    """ Slice Manager Exception """
 
 
-class ApiClient:
+class SliceManager:
     """
     Implements User facing Control Framework API interface
     """
@@ -45,18 +42,40 @@ class ApiClient:
         self.cm_proxy = CredmgrProxy(credmgr_host=cm_host)
         self.oc_proxy = OrchestratorProxy(orchestrator_host=oc_host)
         self.refresh_token = refresh_token
+        self.id_token = None
         self.project_name = project_name
         self.scope = scope
 
-    def __refresh_tokens(self):
+    def get_refresh_token(self) -> str:
+        return self.refresh_token
+
+    def get_id_token(self) -> str:
+        return self.id_token
+
+    def set_id_token(self, id_token: str):
+        self.id_token = id_token
+
+    def refresh_tokens(self) -> Tuple[str, str]:
         """
         Refresh tokens
+        User is expected to invoke refresh token API before invoking any other APIs to ensure the token is not expired.
+        User is also expected to update the returned refresh token in the JupyterHub environment.
         """
         status, id_token, self.refresh_token = self.cm_proxy.refresh(project_name=self.project_name, scope=self.scope,
                                                                      refresh_token=self.refresh_token)
         if status == CmStatus.OK:
-            return id_token
-        raise ApiClientException
+            self.id_token = id_token
+            return self.id_token, self.refresh_token
+        raise SliceManagerException(id_token)
+
+    def revoke_token(self, refresh_token: str = None) -> Tuple[Status, Any]:
+        token_to_be_revoked = refresh_token
+        if token_to_be_revoked is None and self.refresh_token is not None:
+            token_to_be_revoked = self.refresh_token
+
+        if token_to_be_revoked is not None:
+            return self.cm_proxy.revoke(refresh_token=token_to_be_revoked)
+        return Status.OK, None
 
     def create(self, *, slice_name: str, ssh_key: str, topology: ExperimentTopology = None, slice_graph: str = None,
                lease_end_time: str = None) -> Tuple[Status, Union[Exception, List[Reservation]]]:
@@ -69,8 +88,7 @@ class ApiClient:
         @param lease_end_time Lease End Time
         @return Tuple containing Status and Exception/Json containing slivers created
         """
-        id_token = self.__refresh_tokens()
-        return self.oc_proxy.create(token=id_token, slice_name=slice_name, ssh_key=ssh_key, topology=topology,
+        return self.oc_proxy.create(token=self.id_token, slice_name=slice_name, ssh_key=ssh_key, topology=topology,
                                     slice_graph=slice_graph, lease_end_time=lease_end_time)
 
     def delete(self, *, slice_id: str) -> Tuple[Status, Union[Exception, None]]:
@@ -79,16 +97,14 @@ class ApiClient:
         @param slice_id slice id
         @return Tuple containing Status and Exception/Json containing deletion status
         """
-        id_token = self.__refresh_tokens()
-        return self.oc_proxy.delete(token=id_token, slice_id=slice_id)
+        return self.oc_proxy.delete(token=self.id_token, slice_id=slice_id)
 
     def slices(self) -> Tuple[Status, Union[Exception, List[Slice]]]:
         """
         Get slices
         @return Tuple containing Status and Exception/Json containing slices
         """
-        id_token = self.__refresh_tokens()
-        return self.oc_proxy.slices(token=id_token)
+        return self.oc_proxy.slices(token=self.id_token)
 
     def get_slice(self, *, slice_id: str) -> Tuple[Status, Union[Exception, ExperimentTopology]]:
         """
@@ -96,8 +112,7 @@ class ApiClient:
         @param slice_id slice id
         @return Tuple containing Status and Exception/Json containing slice
         """
-        id_token = self.__refresh_tokens()
-        return self.oc_proxy.get_slice(token=id_token, slice_id=slice_id)
+        return self.oc_proxy.get_slice(token=self.id_token, slice_id=slice_id)
 
     def slice_status(self, *, slice_id: str) -> Tuple[Status, Union[Exception, Slice]]:
         """
@@ -105,8 +120,7 @@ class ApiClient:
         @param slice_id slice id
         @return Tuple containing Status and Exception/Json containing slice status
         """
-        id_token = self.__refresh_tokens()
-        return self.oc_proxy.slice_status(token=id_token, slice_id=slice_id)
+        return self.oc_proxy.slice_status(token=self.id_token, slice_id=slice_id)
 
     def slivers(self, *, slice_id: str, sliver_id: str = None) -> Tuple[Status, Union[Exception, List[Reservation]]]:
         """
@@ -115,8 +129,7 @@ class ApiClient:
         @param sliver_id slice sliver_id
         @return Tuple containing Status and Exception/Json containing Sliver(s)
         """
-        id_token = self.__refresh_tokens()
-        return self.oc_proxy.slivers(token=id_token, slice_id=slice_id, sliver_id=sliver_id)
+        return self.oc_proxy.slivers(token=self.id_token, slice_id=slice_id, sliver_id=sliver_id)
 
     def sliver_status(self, *, slice_id: str, sliver_id: str) -> Tuple[Status, Union[Exception, Reservation]]:
         """
@@ -125,17 +138,15 @@ class ApiClient:
         @param sliver_id slice sliver_id
         @return Tuple containing Status and Exception/Json containing Sliver status
         """
-        id_token = self.__refresh_tokens()
-        return self.oc_proxy.sliver_status(token=id_token, slice_id=slice_id, sliver_id=sliver_id)
+        return self.oc_proxy.sliver_status(token=self.id_token, slice_id=slice_id, sliver_id=sliver_id)
 
-    def resources(self, *, level: int = 1) -> Tuple[Status, Union[Exception, AdvertizedTopology]]:
+    def resources(self, *, level: int = 1) -> Tuple[Status, Union[Exception, AdvertisedTopology]]:
         """
         Get resources
         @param level level
         @return Tuple containing Status and Exception/Json containing Resources
         """
-        id_token = self.__refresh_tokens()
-        return self.oc_proxy.resources(token=id_token, level=level)
+        return self.oc_proxy.resources(token=self.id_token, level=level)
 
     def renew(self, *, slice_id: str, new_lease_end_time: str) -> Tuple[Status, Union[Exception, List, None]]:
         """
@@ -144,5 +155,4 @@ class ApiClient:
        @param new_lease_end_time new_lease_end_time
        @return Tuple containing Status and List of Reservation Id failed to extend
        """
-        id_token = self.__refresh_tokens()
-        return self.oc_proxy.renew(token=id_token, slice_id=slice_id, new_lease_end_time=new_lease_end_time)
+        return self.oc_proxy.renew(token=self.id_token, slice_id=slice_id, new_lease_end_time=new_lease_end_time)
