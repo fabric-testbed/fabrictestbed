@@ -1,6 +1,7 @@
 import setuptools
+from fabrictestbed import __VERION__
 
-VERSION = "0.3"
+VERSION = __VERION__
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
