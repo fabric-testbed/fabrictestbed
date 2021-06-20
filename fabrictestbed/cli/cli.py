@@ -148,7 +148,7 @@ def refresh(ctx, refreshtoken, projectname, scope):
     """
     slice_manager = __get_slice_manager(cm_host=ctx.obj['credmgr_host'], project_name=projectname, scope=scope,
                                         refresh_token=refreshtoken)
-    slice_manager.refresh_tokens()
+    slice_manager.refresh_tokens(file_name="tokens.json")
 
     click.echo(f"ID Token: {slice_manager.get_id_token()}")
     click.echo(f"Refresh Token: {slice_manager.get_refresh_token()}")
@@ -186,8 +186,9 @@ def slices(ctx):
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='scope')
 @click.option('--sliceid', default=None, help='Slice Id')
+@click.option('--state', default="Active", help='Slice State')
 @click.pass_context
-def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, sliceid: str):
+def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, sliceid: str, state: str):
     """ Query slice_editor slice(s)
     """
     try:
@@ -198,7 +199,7 @@ def query(ctx, idtoken: str, refreshtoken: str, projectname: str, scope: str, sl
         response = None
 
         if sliceid is None:
-            status, response = slice_manager.slices()
+            status, response = slice_manager.slices(state=state)
         else:
             status, response = slice_manager.get_slice(slice_id=sliceid)
 
