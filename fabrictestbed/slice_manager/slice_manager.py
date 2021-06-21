@@ -23,11 +23,9 @@
 #
 #
 # Author: Komal Thareja (kthare10@renci.org)
-import json
-from datetime import datetime
 from typing import Tuple, Union, List, Any
 
-from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology, GraphFormat
+from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology
 from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, CmStatus, Status, Reservation, Slice
 
 
@@ -151,15 +149,13 @@ class SliceManager:
         """
         return self.oc_proxy.sliver_status(token=self.id_token, slice_id=slice_id, sliver_id=sliver_id)
 
-    def resources(self, *, level: int = 1,
-                  graph_format: str = GraphFormat.GRAPHML.name) -> Tuple[Status, Union[Exception, AdvertisedTopology]]:
+    def resources(self, *, level: int = 1) -> Tuple[Status, Union[Exception, AdvertisedTopology]]:
         """
         Get resources
         @param level level
-        @param graph_format Graph Format
         @return Tuple containing Status and Exception/Json containing Resources
         """
-        return self.oc_proxy.resources(token=self.id_token, level=level, graph_format=graph_format)
+        return self.oc_proxy.resources(token=self.id_token, level=level)
 
     def renew(self, *, slice_id: str, new_lease_end_time: str) -> Tuple[Status, Union[Exception, List, None]]:
         """
