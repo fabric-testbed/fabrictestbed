@@ -55,20 +55,28 @@ class SliceManager:
     def set_id_token(self, id_token: str):
         self.id_token = id_token
 
-    def refresh_tokens(self) -> Tuple[str, str]:
+    def refresh_tokens(self, file_name: str = None) -> Tuple[str, str]:
         """
         Refresh tokens
         User is expected to invoke refresh token API before invoking any other APIs to ensure the token is not expired.
         User is also expected to update the returned refresh token in the JupyterHub environment.
+        @param file_name: File name where the tokens should be saved
+        @returns tuple of id token and refresh token
         """
         status, id_token, self.refresh_token = self.cm_proxy.refresh(project_name=self.project_name, scope=self.scope,
-                                                                     refresh_token=self.refresh_token)
+                                                                     refresh_token=self.refresh_token,
+                                                                     file_name=file_name)
         if status == CmStatus.OK:
             self.id_token = id_token
             return self.id_token, self.refresh_token
         raise SliceManagerException(id_token)
 
     def revoke_token(self, refresh_token: str = None) -> Tuple[Status, Any]:
+        """
+        Revoke a refresh token
+        @param refresh_token Refresh Token to be revoked
+        @return Tuple of the status and revoked refresh token
+        """
         token_to_be_revoked = refresh_token
         if token_to_be_revoked is None and self.refresh_token is not None:
             token_to_be_revoked = self.refresh_token
@@ -99,12 +107,13 @@ class SliceManager:
         """
         return self.oc_proxy.delete(token=self.id_token, slice_id=slice_id)
 
-    def slices(self) -> Tuple[Status, Union[Exception, List[Slice]]]:
+    def slices(self, state: str = "Active") -> Tuple[Status, Union[Exception, List[Slice]]]:
         """
         Get slices
+        @param state Slice state
         @return Tuple containing Status and Exception/Json containing slices
         """
-        return self.oc_proxy.slices(token=self.id_token)
+        return self.oc_proxy.slices(token=self.id_token, state=state)
 
     def get_slice(self, *, slice_id: str) -> Tuple[Status, Union[Exception, ExperimentTopology]]:
         """
