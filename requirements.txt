@@ -1,4 +1,4 @@
 click
 pytest
 fabric-credmgr-client==1.0rc1
-fabric-orchestrator-client==1.0rc1
+fabric-orchestrator-client==1.0rc2
