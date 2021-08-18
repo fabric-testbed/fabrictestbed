@@ -30,7 +30,7 @@ Command | SubCommand | Action | Input | Output
 `SliceManager` class implements the API supporting the operations listed above. Check example in Usage below.
 
 ## Requirements
-Python 3.7+
+Python 3.9+
 
 ## Pre-requisites
 Ensure that following are installed

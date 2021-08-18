@@ -29,7 +29,9 @@ from datetime import datetime, timedelta
 from typing import Tuple, Union, List, Any
 
 from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology
-from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, CmStatus, Status, Reservation, Slice
+from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, CmStatus, Status, Reservation, Slice, \
+    SliceState
+from fabrictestbed.util.constants import Constants
 
 
 class SliceManagerException(Exception):
@@ -40,12 +42,12 @@ class SliceManager:
     """
     Implements User facing Control Framework API interface
     """
-    CILOGON_REFRESH_TOKEN = "CILOGON_REFRESH_TOKEN"
-    DEFAULT_TOKEN_LOCATION = "FABRIC_TOKEN_LOCATION"
-
-    def __init__(self, *, cm_host: str, oc_host: str, token_location: str = None,
-                 project_name: str = "all",
-                 scope: str = "all"):
+    def __init__(self, *, cm_host: str = None, oc_host: str = None, token_location: str = None,
+                 project_name: str = "all", scope: str = "all", initialize: bool = True):
+        if cm_host is None:
+            cm_host = os.environ[Constants.FABRIC_CREDMGR_HOST]
+        if oc_host is None:
+            oc_host = os.environ[Constants.FABRIC_ORCHESTRATOR_HOST]
         self.cm_proxy = CredmgrProxy(credmgr_host=cm_host)
         self.oc_proxy = OrchestratorProxy(orchestrator_host=oc_host)
         self.token_location = token_location
@@ -53,8 +55,10 @@ class SliceManager:
         self.project_name = project_name
         self.scope = scope
         if self.token_location is None:
-            self.token_location = os.environ[self.DEFAULT_TOKEN_LOCATION]
+            self.token_location = os.environ[Constants.FABRIC_TOKEN_LOCATION]
         self.initialized = False
+        if initialize:
+            self.initialize()
 
     def initialize(self):
         """
@@ -105,7 +109,7 @@ class SliceManager:
                 self.tokens = json.loads(stream.read())
         else:
             # First time login, use environment variable to load the tokens
-            refresh_token = os.environ[self.CILOGON_REFRESH_TOKEN]
+            refresh_token = os.environ[Constants.CILOGON_REFRESH_TOKEN]
             self.refresh_tokens(refresh_token=refresh_token)
 
     def get_refresh_token(self) -> str:
@@ -186,15 +190,17 @@ class SliceManager:
             self.refresh_tokens()
         return self.oc_proxy.delete(token=self.get_id_token(), slice_id=slice_id)
 
-    def slices(self, state: str = "Active") -> Tuple[Status, Union[Exception, List[Slice]]]:
+    def slices(self, includes: List[SliceState] = None,
+               filters: List[SliceState] = None) -> Tuple[Status, Union[Exception, List[Slice]]]:
         """
         Get slices
-        @param state Slice state
+        @param includes list of the slice state used to include the slices in the output
+        @param filters list of the slice state used to exclude the slices from the output
         @return Tuple containing Status and Exception/Json containing slices
         """
         if self.__should_renew():
             self.refresh_tokens()
-        return self.oc_proxy.slices(token=self.get_id_token(), state=state)
+        return self.oc_proxy.slices(token=self.get_id_token(), includes=includes, filters=filters)
 
     def get_slice(self, *, slice_id: str) -> Tuple[Status, Union[Exception, ExperimentTopology]]:
         """
