@@ -2,3 +2,4 @@ click
 pytest
 fabric-credmgr-client==1.0
 fabric-orchestrator-client==1.1b1
+paramiko

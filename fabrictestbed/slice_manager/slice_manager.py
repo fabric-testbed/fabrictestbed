@@ -28,6 +28,9 @@ import os
 from datetime import datetime, timedelta
 from typing import Tuple, Union, List, Any
 
+import paramiko
+from fim.slivers.network_node import NodeSliver
+
 from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology
 from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, CmStatus, Status, Reservation, Slice, \
     SliceState
@@ -264,3 +267,39 @@ class SliceManager:
         if self.__should_renew():
             self.refresh_tokens()
         return self.oc_proxy.renew(token=self.get_id_token(), slice_id=slice_id, new_lease_end_time=new_lease_end_time)
+
+    @staticmethod
+    def __get_ssh_client() -> paramiko.SSHClient():
+        client = paramiko.SSHClient()
+        client.load_system_host_keys()
+        client.set_missing_host_key_policy(paramiko.MissingHostKeyPolicy())
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        return client
+
+    @staticmethod
+    def execute(*, ssh_key_file: str, sliver: NodeSliver, username: str,
+                command: str) -> Tuple[Status, Exception or Tuple]:
+        """
+        Execute a command on a sliver
+        @param ssh_key_file: Location of SSH Private Key file to use to access the Sliver
+        @param sliver: Sliver on which to execute the command
+        @param username: Username to use to access the sliver
+        @param command: Command to be executed on the sliver
+        @return tuple as explained below:
+        - Success: Status.OK and the stdout, and stderr of the executing command, as a 2-tuple
+        - Failure: Status.Failure and exception
+        Status indicates if the command could be executed(Status.OK) or not(Status.FAILURE).
+        Success or failure of the command should be determined from the stdin, stdout and stderr
+        """
+        client = None
+        try:
+            key = paramiko.RSAKey.from_private_key_file(ssh_key_file)
+            client = SliceManager.__get_ssh_client()
+            client.connect(sliver.management_ip, username=username, pkey=key)
+            stdin, stdout, stderr = client.exec_command(command=command)
+            return Status.OK, (stdout.readlines(), stderr.readlines())
+        except Exception as e:
+            return Status.FAILURE, e
+        finally:
+            if client is not None:
+                client.close()
