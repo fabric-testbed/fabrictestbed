@@ -29,7 +29,6 @@ from datetime import datetime, timedelta
 from typing import Tuple, Union, List, Any
 
 import paramiko
-from fim.slivers.network_node import NodeSliver
 
 from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology
 from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, CmStatus, Status, Reservation, Slice, \
@@ -277,12 +276,12 @@ class SliceManager:
         return client
 
     @staticmethod
-    def execute(*, ssh_key_file: str, sliver: NodeSliver, username: str,
+    def execute(*, ssh_key_file: str, sliver_address: str, username: str,
                 command: str) -> Tuple[Status, Exception or Tuple]:
         """
         Execute a command on a sliver
         @param ssh_key_file: Location of SSH Private Key file to use to access the Sliver
-        @param sliver: Sliver on which to execute the command
+        @param sliver_address: IP address or the connection string to use to access the sliver
         @param username: Username to use to access the sliver
         @param command: Command to be executed on the sliver
         @return tuple as explained below:
@@ -295,7 +294,7 @@ class SliceManager:
         try:
             key = paramiko.RSAKey.from_private_key_file(ssh_key_file)
             client = SliceManager.__get_ssh_client()
-            client.connect(sliver.management_ip, username=username, pkey=key)
+            client.connect(sliver_address, username=username, pkey=key)
             stdin, stdout, stderr = client.exec_command(command=command)
             return Status.OK, (stdout.readlines(), stderr.readlines())
         except Exception as e:
