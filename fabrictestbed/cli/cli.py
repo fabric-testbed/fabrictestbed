@@ -32,7 +32,7 @@ from .exceptions import TokenExpiredException
 from ..slice_manager.slice_manager import SliceManager, Status
 
 
-def __get_slice_manager(*, oc_host: str = None, cm_host: str, project_name: str = "all", scope: str = "all",
+def __get_slice_manager(*, oc_host: str = None, cm_host: str = None, project_name: str = "all", scope: str = "all",
                         token_location: str = None) -> SliceManager:
     """
     Get Environment Variables
@@ -244,6 +244,31 @@ def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectname: str, s
     except TokenExpiredException as e:
         raise click.ClickException(str(e) +
                                    ', use \'fabric-cli token refresh\' to refresh token first')
+    except Exception as e:
+        raise click.ClickException(str(e))
+
+
+@slivers.command()
+@click.option('--sshkeyfile', help='Location of SSH Private Key file to use to access the Sliver')
+@click.option('--sliceaddress', help='IP address or the connection string to use to access the sliver')
+@click.option('--username', default=None, help='Username to use to access the sliver')
+@click.option('--command', default=None, help='Command to be executed on the sliver')
+@click.pass_context
+def execute(ctx, sshkeyfile: str, sliceaddress: str, username: str, command: str):
+    """ Query slice_editor slice sliver(s)
+    """
+    try:
+        slice_manager = __get_slice_manager()
+
+        status, response = slice_manager.execute(ssh_key_file=sshkeyfile, sliver_address=sliceaddress,
+                                                 username=username, command=command)
+
+        if status == Status.OK:
+            output, error = response
+            click.echo(f"Output: {output}")
+            click.echo(f"Error: {error}")
+        else:
+            click.echo(f'Query Sliver(s) failed: {status.interpret(exception=response)}')
     except Exception as e:
         raise click.ClickException(str(e))
 
