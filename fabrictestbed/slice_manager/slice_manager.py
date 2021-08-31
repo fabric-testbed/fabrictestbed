@@ -29,6 +29,7 @@ from datetime import datetime, timedelta
 from typing import Tuple, Union, List, Any
 
 import paramiko
+from fim.slivers.network_node import NodeSliver
 
 from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology
 from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, CmStatus, Status, Reservation, Slice, \
@@ -193,16 +194,16 @@ class SliceManager:
         return self.oc_proxy.delete(token=self.get_id_token(), slice_id=slice_id)
 
     def slices(self, includes: List[SliceState] = None,
-               filters: List[SliceState] = None) -> Tuple[Status, Union[Exception, List[Slice]]]:
+               excludes: List[SliceState] = None) -> Tuple[Status, Union[Exception, List[Slice]]]:
         """
         Get slices
         @param includes list of the slice state used to include the slices in the output
-        @param filters list of the slice state used to exclude the slices from the output
+        @param excludes list of the slice state used to exclude the slices from the output
         @return Tuple containing Status and Exception/Json containing slices
         """
         if self.__should_renew():
             self.refresh_tokens()
-        return self.oc_proxy.slices(token=self.get_id_token(), includes=includes, filters=filters)
+        return self.oc_proxy.slices(token=self.get_id_token(), includes=includes, excludes=excludes)
 
     def get_slice(self, *, slice_id: str) -> Tuple[Status, Union[Exception, ExperimentTopology]]:
         """
@@ -276,12 +277,12 @@ class SliceManager:
         return client
 
     @staticmethod
-    def execute(*, ssh_key_file: str, sliver_address: str, username: str,
+    def execute(*, ssh_key_file: str, sliver: NodeSliver, username: str,
                 command: str) -> Tuple[Status, Exception or Tuple]:
         """
         Execute a command on a sliver
         @param ssh_key_file: Location of SSH Private Key file to use to access the Sliver
-        @param sliver_address: IP address or the connection string to use to access the sliver
+        @param sliver: Node sliver
         @param username: Username to use to access the sliver
         @param command: Command to be executed on the sliver
         @return tuple as explained below:
@@ -294,7 +295,7 @@ class SliceManager:
         try:
             key = paramiko.RSAKey.from_private_key_file(ssh_key_file)
             client = SliceManager.__get_ssh_client()
-            client.connect(sliver_address, username=username, pkey=key)
+            client.connect(sliver.management_ip, username=username, pkey=key)
             stdin, stdout, stderr = client.exec_command(command=command)
             return Status.OK, (stdout.readlines(), stderr.readlines())
         except Exception as e:
