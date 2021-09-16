@@ -183,20 +183,17 @@ class SliceManager:
         return self.oc_proxy.create(token=self.get_id_token(), slice_name=slice_name, ssh_key=ssh_key,
                                     topology=topology, slice_graph=slice_graph, lease_end_time=lease_end_time)
 
-    def delete(self, *, slices: List[Slice]) -> List[Tuple[Status, Union[Exception, None]]]:
+    def delete(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, None]]:
         """
         Delete slice(s)
-        @param slices list of slices to be deleted
+        @param slice_object slice to be deleted
         @return Tuple containing Status and Exception/Json containing deletion status
         """
-        if slices is None or len(slices) < 1:
-            raise SliceManagerException("Missing slices parameter")
+        if slice_object is None:
+            raise SliceManagerException("Missing slice_object parameter")
         if self.__should_renew():
             self.refresh_tokens()
-        result = []
-        for s in slices:
-            result.append(self.oc_proxy.delete(token=self.get_id_token(), slice_id=s.slice_id))
-        return result
+        return self.oc_proxy.delete(token=self.get_id_token(), slice_id=slice_object.slice_id)
 
     def slices(self, includes: List[SliceState] = None,
                excludes: List[SliceState] = None) -> Tuple[Status, Union[Exception, List[Slice]]]:
@@ -220,55 +217,46 @@ class SliceManager:
             self.refresh_tokens()
         return self.oc_proxy.get_slice(token=self.get_id_token(), slice_id=slice_object.slice_id)
 
-    def slice_status(self, *, slices: List[Slice]) -> List[Tuple[Status, Union[Exception, Slice]]]:
+    def slice_status(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, Slice]]:
         """
         Get slices status
-        @param slices list of the slices
+        @param slice_object slice for which to retrieve the status
         @return Tuple containing Status and Exception/Json containing slice status
         """
-        if slices is None or len(slices) < 1:
-            raise SliceManagerException("Missing slices parameter")
+        if slice_object is None:
+            raise SliceManagerException("Missing slice_object parameter")
 
         if self.__should_renew():
             self.refresh_tokens()
-        result = []
-        for s in slices:
-            result.append(self.oc_proxy.slice_status(token=self.get_id_token(), slice_id=s.slice_id))
-        return result
+        return self.oc_proxy.slice_status(token=self.get_id_token(), slice_id=slice_object.slice_id)
 
-    def slivers(self, *, slices: List[Slice]) -> List[Tuple[Status, Union[Exception, List[Reservation]]]]:
+    def slivers(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, List[Reservation]]]:
         """
         Get slivers
-        @param slices list of the slices
+        @param slice_object list of the slices
         @return Tuple containing Status and Exception/Json containing Sliver(s)
         """
-        if slices is None or len(slices) < 1:
-            raise SliceManagerException("Missing slices parameter")
+        if slice_object is None:
+            raise SliceManagerException("Missing slice_object parameter")
 
         if self.__should_renew():
             self.refresh_tokens()
-        result = []
-        for s in slices:
-            result.append(self.oc_proxy.slivers(token=self.get_id_token(), slice_id=s.slice_id))
-        return result
 
-    def sliver_status(self, *, slivers: List[Reservation]) -> List[Tuple[Status, Union[Exception, Reservation]]]:
+        return self.oc_proxy.slivers(token=self.get_id_token(), slice_id=slice_object.slice_id)
+
+    def sliver_status(self, *, sliver: Reservation) -> Tuple[Status, Union[Exception, Reservation]]:
         """
         Get sliver status
-        @param slivers list of slivers
+        @param sliver sliver
         @return Tuple containing Status and Exception/Json containing Sliver status
         """
-        if slivers is None or len(slivers) < 1:
-            raise SliceManagerException("Missing slivers parameter")
+        if sliver is None:
+            raise SliceManagerException("Missing sliver parameter")
 
         if self.__should_renew():
             self.refresh_tokens()
-        result = []
-        for s in slivers:
-            result.append(self.oc_proxy.sliver_status(token=self.get_id_token(), slice_id=s.slice_id,
-                                                      sliver_id=s.reservation_id))
-
-        return result
+        return self.oc_proxy.sliver_status(token=self.get_id_token(), slice_id=sliver.slice_id,
+                                           sliver_id=sliver.reservation_id)
 
     def resources(self, *, level: int = 1) -> Tuple[Status, Union[Exception, AdvertisedTopology]]:
         """
@@ -280,25 +268,21 @@ class SliceManager:
             self.refresh_tokens()
         return self.oc_proxy.resources(token=self.get_id_token(), level=level)
 
-    def renew(self, *, slices: List[Slice], new_lease_end_time: str) -> List[Tuple[Status, Union[Exception, List, None]]]:
+    def renew(self, *, slice_object: Slice, new_lease_end_time: str) -> Tuple[Status, Union[Exception, List, None]]:
         """
         Renew a slice
-        @param slices list of slices to be renewed
+        @param slice_object slice to be renewed
         @param new_lease_end_time new_lease_end_time
         @return Tuple containing Status and List of Reservation Id failed to extend
        """
-        if slices is None or len(slices) < 1:
-            raise SliceManagerException("Missing slices parameter")
+        if slice_object is None:
+            raise SliceManagerException("Missing slice_object parameter")
 
         if self.__should_renew():
             self.refresh_tokens()
 
-        result = []
-        for s in slices:
-            result.append(self.oc_proxy.renew(token=self.get_id_token(), slice_id=s.slice_id,
-                                              new_lease_end_time=new_lease_end_time))
-
-        return result
+        return self.oc_proxy.renew(token=self.get_id_token(), slice_id=slice_object.slice_id,
+                                   new_lease_end_time=new_lease_end_time)
 
     @staticmethod
     def __get_ssh_client() -> paramiko.SSHClient():

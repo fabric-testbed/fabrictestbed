@@ -26,7 +26,9 @@
 import webbrowser
 
 import click
+from fabric_cf.orchestrator.elements.slice import Slice
 from fabric_cf.orchestrator.orchestrator_proxy import SliceState
+from fim.slivers.network_node import NodeSliver
 
 from .exceptions import TokenExpiredException
 from ..slice_manager.slice_manager import SliceManager, Status
@@ -132,7 +134,9 @@ def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectname: str, s
         if sliceid is None:
             status, response = slice_manager.slices(includes=includes)
         else:
-            status, response = slice_manager.get_slice(slice_id=sliceid)
+            slice_object = Slice()
+            slice_object.slice_id = sliceid
+            status, response = slice_manager.get_slice_topology(slice_object=slice_object)
 
         if status == Status.OK:
             click.echo(response)
@@ -195,7 +199,9 @@ def delete(ctx, cmhost: str, ochost: str, tokenlocation: str, projectname: str, 
     try:
         slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_name=projectname, scope=scope,
                                             token_location=tokenlocation)
-        status, response = slice_manager.delete(slice_id=sliceid)
+        slice_object = Slice()
+        slice_object.slice_id = sliceid
+        status, response = slice_manager.delete(slice_object=slice_object)
 
         if status == Status.OK:
             click.echo(response)
@@ -234,7 +240,9 @@ def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectname: str, s
         slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_name=projectname, scope=scope,
                                             token_location=tokenlocation)
 
-        status, response = slice_manager.slivers(slice_id=sliceid, sliver_id=sliverid)
+        slice_object = Slice()
+        slice_object.slice_id = sliceid
+        status, response = slice_manager.slivers(slice_object=slice_object)
 
         if status == Status.OK:
             click.echo(response)
@@ -260,7 +268,9 @@ def execute(ctx, sshkeyfile: str, sliceaddress: str, username: str, command: str
     try:
         slice_manager = __get_slice_manager()
 
-        status, response = slice_manager.execute(ssh_key_file=sshkeyfile, sliver_address=sliceaddress,
+        sliver = NodeSliver()
+        sliver.management_ip = sliceaddress
+        status, response = slice_manager.execute(ssh_key_file=sshkeyfile, sliver=sliver,
                                                  username=username, command=command)
 
         if status == Status.OK:
