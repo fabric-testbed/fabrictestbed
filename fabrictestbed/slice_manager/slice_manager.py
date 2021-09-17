@@ -178,6 +178,18 @@ class SliceManager:
         @param lease_end_time Lease End Time
         @return Tuple containing Status and Exception/Json containing slivers created
         """
+        if slice_name is None or not isinstance(slice_name, str) or ssh_key is None or not isinstance(ssh_key, str):
+            raise SliceManagerException("Invalid arguments")
+
+        if topology is not None and not isinstance(topology, ExperimentTopology):
+            raise SliceManagerException("Invalid arguments")
+
+        if slice_graph is not None and not isinstance(slice_graph, str):
+            raise SliceManagerException("Invalid arguments")
+
+        if lease_end_time is not None and not isinstance(lease_end_time, str):
+            raise SliceManagerException("Invalid arguments")
+
         if self.__should_renew():
             self.refresh_tokens()
         return self.oc_proxy.create(token=self.get_id_token(), slice_name=slice_name, ssh_key=ssh_key,
@@ -189,8 +201,8 @@ class SliceManager:
         @param slice_object slice to be deleted
         @return Tuple containing Status and Exception/Json containing deletion status
         """
-        if slice_object is None:
-            raise SliceManagerException("Missing slice_object parameter")
+        if slice_object is None or not isinstance(slice_object, Slice):
+            raise SliceManagerException("Invalid arguments")
         if self.__should_renew():
             self.refresh_tokens()
         return self.oc_proxy.delete(token=self.get_id_token(), slice_id=slice_object.slice_id)
@@ -213,6 +225,8 @@ class SliceManager:
         @param slice_object Slice for which to retrieve the topology
         @return Tuple containing Status and Exception/Json containing slice
         """
+        if slice_object is None or not isinstance(slice_object, Slice):
+            raise SliceManagerException("Invalid arguments")
         if self.__should_renew():
             self.refresh_tokens()
         return self.oc_proxy.get_slice(token=self.get_id_token(), slice_id=slice_object.slice_id)
@@ -223,8 +237,8 @@ class SliceManager:
         @param slice_object slice for which to retrieve the status
         @return Tuple containing Status and Exception/Json containing slice status
         """
-        if slice_object is None:
-            raise SliceManagerException("Missing slice_object parameter")
+        if slice_object is None or not isinstance(slice_object, Slice):
+            raise SliceManagerException("Invalid arguments")
 
         if self.__should_renew():
             self.refresh_tokens()
@@ -236,8 +250,8 @@ class SliceManager:
         @param slice_object list of the slices
         @return Tuple containing Status and Exception/Json containing Sliver(s)
         """
-        if slice_object is None:
-            raise SliceManagerException("Missing slice_object parameter")
+        if slice_object is None or not isinstance(slice_object, Slice):
+            raise SliceManagerException("Invalid arguments")
 
         if self.__should_renew():
             self.refresh_tokens()
@@ -250,8 +264,8 @@ class SliceManager:
         @param sliver sliver
         @return Tuple containing Status and Exception/Json containing Sliver status
         """
-        if sliver is None:
-            raise SliceManagerException("Missing sliver parameter")
+        if sliver is None or not isinstance(sliver, Reservation):
+            raise SliceManagerException("Invalid arguments")
 
         if self.__should_renew():
             self.refresh_tokens()
@@ -275,8 +289,8 @@ class SliceManager:
         @param new_lease_end_time new_lease_end_time
         @return Tuple containing Status and List of Reservation Id failed to extend
        """
-        if slice_object is None:
-            raise SliceManagerException("Missing slice_object parameter")
+        if slice_object is None or not isinstance(slice_object, Slice) or new_lease_end_time is None:
+            raise SliceManagerException("Invalid arguments")
 
         if self.__should_renew():
             self.refresh_tokens()
@@ -307,6 +321,10 @@ class SliceManager:
         Status indicates if the command could be executed(Status.OK) or not(Status.FAILURE).
         Success or failure of the command should be determined from the stdin, stdout and stderr
         """
+        if sliver is None or not isinstance(sliver, NodeSliver) or ssh_key_file is None or\
+                username is None or command is None:
+            raise SliceManagerException("Invalid arguments")
+
         client = None
         try:
             key = paramiko.RSAKey.from_private_key_file(ssh_key_file)
