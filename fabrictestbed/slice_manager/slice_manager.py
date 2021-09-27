@@ -29,9 +29,8 @@ from datetime import datetime, timedelta
 from typing import Tuple, Union, List, Any
 
 import paramiko
-from fim.slivers.network_node import NodeSliver
 
-from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology
+from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology, Node, GraphFormat
 from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, CmStatus, Status, Reservation, Slice, \
     SliceState
 from fabrictestbed.util.constants import Constants
@@ -179,16 +178,16 @@ class SliceManager:
         @return Tuple containing Status and Exception/Json containing slivers created
         """
         if slice_name is None or not isinstance(slice_name, str) or ssh_key is None or not isinstance(ssh_key, str):
-            raise SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
 
         if topology is not None and not isinstance(topology, ExperimentTopology):
-            raise SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
 
         if slice_graph is not None and not isinstance(slice_graph, str):
-            raise SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
 
         if lease_end_time is not None and not isinstance(lease_end_time, str):
-            raise SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
 
         if self.__should_renew():
             self.refresh_tokens()
@@ -202,7 +201,7 @@ class SliceManager:
         @return Tuple containing Status and Exception/Json containing deletion status
         """
         if slice_object is None or not isinstance(slice_object, Slice):
-            raise SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
         if self.__should_renew():
             self.refresh_tokens()
         return self.oc_proxy.delete(token=self.get_id_token(), slice_id=slice_object.slice_id)
@@ -219,17 +218,20 @@ class SliceManager:
             self.refresh_tokens()
         return self.oc_proxy.slices(token=self.get_id_token(), includes=includes, excludes=excludes)
 
-    def get_slice_topology(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, ExperimentTopology]]:
+    def get_slice_topology(self, *, slice_object: Slice,
+                           graph_format: GraphFormat = GraphFormat.GRAPHML) -> Tuple[Status, Union[Exception, ExperimentTopology]]:
         """
         Get slice topology
         @param slice_object Slice for which to retrieve the topology
+        @param graph_format
         @return Tuple containing Status and Exception/Json containing slice
         """
         if slice_object is None or not isinstance(slice_object, Slice):
-            raise SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
         if self.__should_renew():
             self.refresh_tokens()
-        return self.oc_proxy.get_slice(token=self.get_id_token(), slice_id=slice_object.slice_id)
+        return self.oc_proxy.get_slice(token=self.get_id_token(), slice_id=slice_object.slice_id,
+                                       graph_format=graph_format)
 
     def slice_status(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, Slice]]:
         """
@@ -238,7 +240,7 @@ class SliceManager:
         @return Tuple containing Status and Exception/Json containing slice status
         """
         if slice_object is None or not isinstance(slice_object, Slice):
-            raise SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
 
         if self.__should_renew():
             self.refresh_tokens()
@@ -251,7 +253,7 @@ class SliceManager:
         @return Tuple containing Status and Exception/Json containing Sliver(s)
         """
         if slice_object is None or not isinstance(slice_object, Slice):
-            raise SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
 
         if self.__should_renew():
             self.refresh_tokens()
@@ -265,7 +267,7 @@ class SliceManager:
         @return Tuple containing Status and Exception/Json containing Sliver status
         """
         if sliver is None or not isinstance(sliver, Reservation):
-            raise SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
 
         if self.__should_renew():
             self.refresh_tokens()
@@ -290,7 +292,7 @@ class SliceManager:
         @return Tuple containing Status and List of Reservation Id failed to extend
        """
         if slice_object is None or not isinstance(slice_object, Slice) or new_lease_end_time is None:
-            raise SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
 
         if self.__should_renew():
             self.refresh_tokens()
@@ -307,7 +309,7 @@ class SliceManager:
         return client
 
     @staticmethod
-    def execute(*, ssh_key_file: str, sliver: NodeSliver, username: str,
+    def execute(*, ssh_key_file: str, sliver: Node, username: str,
                 command: str) -> Tuple[Status, Exception or Tuple]:
         """
         Execute a command on a sliver
@@ -321,9 +323,9 @@ class SliceManager:
         Status indicates if the command could be executed(Status.OK) or not(Status.FAILURE).
         Success or failure of the command should be determined from the stdin, stdout and stderr
         """
-        if sliver is None or not isinstance(sliver, NodeSliver) or ssh_key_file is None or\
+        if sliver is None or not isinstance(sliver, Node) or ssh_key_file is None or\
                 username is None or command is None:
-            raise SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
 
         client = None
         try:
