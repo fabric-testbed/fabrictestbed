@@ -331,7 +331,7 @@ class SliceManager:
         try:
             key = paramiko.RSAKey.from_private_key_file(ssh_key_file)
             client = SliceManager.__get_ssh_client()
-            client.connect(sliver.management_ip, username=username, pkey=key)
+            client.connect(str(sliver.management_ip), username=username, pkey=key)
             stdin, stdout, stderr = client.exec_command(command=command)
             return Status.OK, (stdout.readlines(), stderr.readlines())
         except Exception as e:
