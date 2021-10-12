@@ -1,7 +1,6 @@
 import setuptools
-from fabrictestbed import __VERION__
+from fabrictestbed import __VERSION__
 
-VERSION = __VERION__
 
 with open("README.md", "r") as fh:
     long_description = fh.read()
@@ -11,7 +10,7 @@ with open("requirements.txt", "r") as fh:
 
 setuptools.setup(
     name='fabrictestbed',
-    version=VERSION,
+    version=__VERSION__,
     author="Erica Fu, Komal Thareja",
     author_email="ericafu@renci.org, kthare10@unc.edu",
     description="FABRIC Python Client Library with CLI",
