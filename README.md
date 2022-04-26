@@ -65,7 +65,7 @@ fabric_refresh_token = "<REFRESH TOKEN>"
 # Users can request tokens with different Project and Scopes by altering `project_name` and `scope`
 # parameters in the refresh call below.
 client = SliceManager(oc_host=orchestrator_host, cm_host=credmgr_host,
-                      refresh_token=fabric_refresh_token, project_name='all', scope='all')
+                      refresh_token=fabric_refresh_token, project_name='CF Test', scope='all')
 
 # Get new Fabric Identity Token and update Fabric Refresh Token
 try:
