@@ -95,7 +95,7 @@ class SliceManager:
         created_at_time = datetime.strptime(created_at, CredmgrProxy.TIME_FORMAT)
         now = datetime.utcnow()
 
-        if now - created_at_time >= timedelta(minutes=30):
+        if id_token is None or now - created_at_time >= timedelta(minutes=30):
             return True
 
         return False
