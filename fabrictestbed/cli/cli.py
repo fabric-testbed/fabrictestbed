@@ -23,7 +23,7 @@
 #
 #
 # Author: Erica Fu (ericafu@renci.org), Komal Thareja (kthare10@renci.org)
-import webbrowser
+#
 
 import click
 from fabric_cf.orchestrator.elements.slice import Slice
@@ -34,7 +34,7 @@ from .exceptions import TokenExpiredException
 from ..slice_manager.slice_manager import SliceManager, Status
 
 
-def __get_slice_manager(*, oc_host: str = None, cm_host: str = None, project_name: str = "all", scope: str = "all",
+def __get_slice_manager(*, oc_host: str = None, cm_host: str = None, project_name: str = None, scope: str = "all",
                         token_location: str = None) -> SliceManager:
     """
     Get Environment Variables
@@ -61,14 +61,14 @@ def cli(ctx, verbose):
 @click.pass_context
 def tokens(ctx):
     """ Token management
-        (set $FABRIC_CREDMGR_HOST to the Credential Manager Server)
+        (set $FABRIC_CREDMGR_HOST => CredentialManager, $FABRIC_PROJECT_NAME => Project Name)
     """
 
 
 @tokens.command()
 @click.option('--cmhost', help='Credmgr Host', default=None)
 @click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--projectname', default='all', help='project name')
+@click.option('--projectname', default=None, help='project name')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='scope')
 @click.pass_context
@@ -103,7 +103,7 @@ def revoke(ctx, cmhost, tokenlocation, refreshtoken):
 @click.pass_context
 def slices(ctx):
     """ Slice management
-        (set $FABRIC_ORCHESTRATOR_HOST to the Orchestrator and set $FABRIC_CREDMGR_HOST to the Credential Manager Server)
+        (set $FABRIC_ORCHESTRATOR_HOST => Orchestrator, $FABRIC_CREDMGR_HOST => CredentialManager, $FABRIC_PROJECT_NAME => Project Name)
     """
 
 
@@ -111,7 +111,7 @@ def slices(ctx):
 @click.option('--cmhost', help='Credmgr Host', default=None)
 @click.option('--ochost', help='Orchestrator Host', default=None)
 @click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--projectname', default='all', help='project name')
+@click.option('--projectname', default=None, help='project name')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='scope')
 @click.option('--sliceid', default=None, help='Slice Id')
@@ -154,7 +154,7 @@ def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectname: str, s
 @click.option('--cmhost', help='Credmgr Host', default=None)
 @click.option('--ochost', help='Orchestrator Host', default=None)
 @click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--projectname', default='all', help='project name')
+@click.option('--projectname', default=None, help='project name')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='scope')
 @click.option('--slicename', help='Slice Name', required=True)
@@ -188,7 +188,7 @@ def create(ctx, cmhost: str, ochost: str, tokenlocation: str, projectname: str, 
 @click.option('--cmhost', help='Credmgr Host', default=None)
 @click.option('--ochost', help='Orchestrator Host', default=None)
 @click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--projectname', default='all', help='project name')
+@click.option('--projectname', default=None, help='project name')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='scope')
 @click.option('--sliceid', help='Slice Id', required=True)
@@ -219,7 +219,7 @@ def delete(ctx, cmhost: str, ochost: str, tokenlocation: str, projectname: str, 
 @click.pass_context
 def slivers(ctx):
     """ Sliver management
-        (set $FABRIC_ORCHESTRATOR_HOST to the Orchestrator and set $FABRIC_CREDMGR_HOST to the Credential Manager Server)
+        (set $FABRIC_ORCHESTRATOR_HOST => Orchestrator, $FABRIC_CREDMGR_HOST => CredentialManager, $FABRIC_PROJECT_NAME => Project Name)
     """
 
 
@@ -227,7 +227,7 @@ def slivers(ctx):
 @click.option('--cmhost', help='Credmgr Host', default=None)
 @click.option('--ochost', help='Orchestrator Host', default=None)
 @click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--projectname', default='all', help='project name')
+@click.option('--projectname', default=None, help='project name')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='scope')
 @click.option('--sliceid', help='Slice Id')
@@ -287,7 +287,7 @@ def execute(ctx, sshkeyfile: str, sliceaddress: str, username: str, command: str
 @click.pass_context
 def resources(ctx):
     """ Resource management
-        (set $FABRIC_ORCHESTRATOR_HOST to the Orchestrator and set $FABRIC_CREDMGR_HOST to the Credential Manager Server)
+        (set $FABRIC_ORCHESTRATOR_HOST => Orchestrator, $FABRIC_CREDMGR_HOST => CredentialManager, $FABRIC_PROJECT_NAME => Project Name)
     """
 
 
@@ -295,7 +295,7 @@ def resources(ctx):
 @click.option('--cmhost', help='Credmgr Host', default=None)
 @click.option('--ochost', help='Orchestrator Host', default=None)
 @click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--projectname', default='all', help='project name')
+@click.option('--projectname', default=None, help='project name')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='scope')
 @click.pass_context

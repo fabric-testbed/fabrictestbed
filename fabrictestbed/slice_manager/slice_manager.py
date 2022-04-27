@@ -45,7 +45,7 @@ class SliceManager:
     Implements User facing Control Framework API interface
     """
     def __init__(self, *, cm_host: str = None, oc_host: str = None, token_location: str = None,
-                 project_name: str = "all", scope: str = "all", initialize: bool = True):
+                 project_name: str = None, scope: str = "all", initialize: bool = True):
         if cm_host is None:
             cm_host = os.environ[Constants.FABRIC_CREDMGR_HOST]
         if oc_host is None:
@@ -55,10 +55,17 @@ class SliceManager:
         self.token_location = token_location
         self.tokens = {}
         self.project_name = project_name
+        if self.project_name is None:
+            self.project_name = os.environ[Constants.FABRIC_PROJECT_NAME]
         self.scope = scope
         if self.token_location is None:
             self.token_location = os.environ[Constants.FABRIC_TOKEN_LOCATION]
         self.initialized = False
+        # Validate the required parameters are set
+        if self.cm_proxy is None or self.oc_proxy is None or self.token_location is None or self.project_name is None:
+            raise SliceManagerException(f"Invalid initialization parameters: cm_proxy={self.cm_proxy}, "
+                                        f"oc_proxy={self.oc_proxy}, token_location={self.token_location}, "
+                                        f"project_name={self.project_name}")
         if initialize:
             self.initialize()
 
