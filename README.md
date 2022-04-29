@@ -17,14 +17,14 @@ This package supports User facing APIs as well as CLI.
 ### CLI Commands
 Command | SubCommand | Action | Input | Output
 :--------|:----:|:----:|:---:|:---:
-`tokens` | `issue`| Issue token with projectname and scope | `projectname` Project Name, `scope` Scope | Points user to Credential Manager to generate the tokens
-`token` | `refresh`| Refresh token | `projectname` Project Name, `scope` Scope, `refreshtoken` Refresh Token | Returns new identity and refresh tokens
+`tokens` | `issue`| Issue token with projectId and scope | `projectId` Project Id, `scope` Scope | Points user to Credential Manager to generate the tokens
+`token` | `refresh`| Refresh token | `projectId` Project Id, `scope` Scope, `refreshtoken` Refresh Token | Returns new identity and refresh tokens
 `token` | `revoke` | Revoke token |  `refreshtoken` Refresh Token | Success or Failure status
-`slices` | `query` | Query user slice(s) |  `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectname` Project Name, `scope` Scope, `sliceid` Slice Id | List of Slices or Graph ML representing slice identified by Slice Id
-`slices` | `create` | Create user slice |  `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectname` Project Name, `scope` Scope, `slicename` Slice Name, `slicegraph` Slice graph | List of Slivers created for the Slice
-`slices` | `delete` | Delete user slice |  `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectname` Project Name, `scope` Scope, `sliceid` Slice Id | Success or Failure Status
-`slivers` | `query` | Query user sliver(s) |  `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectname` Project Name, `scope` Scope, `sliceid` Slice Id, `sliverid` Sliver Id | List of Slivers for the slice identified by Slice Id or Sliver identified by Sliver Id
-`resources` | `query` | Query resources | `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectname` Project Name, `scope` Scope | Graph ML representing the available resources
+`slices` | `query` | Query user slice(s) |  `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectId` Project Id, `scope` Scope, `sliceid` Slice Id | List of Slices or Graph ML representing slice identified by Slice Id
+`slices` | `create` | Create user slice |  `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectId` Project Id, `scope` Scope, `slicename` Slice Name, `slicegraph` Slice graph | List of Slivers created for the Slice
+`slices` | `delete` | Delete user slice |  `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectId` Project Id, `scope` Scope, `sliceid` Slice Id | Success or Failure Status
+`slivers` | `query` | Query user sliver(s) |  `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectId` Project Id, `scope` Scope, `sliceid` Slice Id, `sliverid` Sliver Id | List of Slivers for the slice identified by Slice Id or Sliver identified by Sliver Id
+`resources` | `query` | Query resources | `idtoken` Identity Token, `refreshtoken` Refresh Token, `projectId` Project Id, `scope` Scope | Graph ML representing the available resources
 
 ### API
 `SliceManager` class implements the API supporting the operations listed above. Check example in Usage below.
@@ -188,7 +188,7 @@ Options:
   --help  Show this message and exit.
 
 Commands:
-  issue    Issue token with projectname and scope
+  issue    Issue token with projectId and scope
   refresh  Refresh token
   revoke   Revoke token
 ```
@@ -206,7 +206,7 @@ Options:
   --help  Show this message and exit.
 
 Commands:
-  query  issue token with projectname and scope
+  query  issue token with projectId and scope
 ```
 ### Slice Management Commands
 ```

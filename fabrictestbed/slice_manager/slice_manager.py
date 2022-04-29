@@ -45,7 +45,7 @@ class SliceManager:
     Implements User facing Control Framework API interface
     """
     def __init__(self, *, cm_host: str = None, oc_host: str = None, token_location: str = None,
-                 project_name: str = None, scope: str = "all", initialize: bool = True):
+                 project_id: str = None, scope: str = "all", initialize: bool = True):
         if cm_host is None:
             cm_host = os.environ[Constants.FABRIC_CREDMGR_HOST]
         if oc_host is None:
@@ -54,18 +54,18 @@ class SliceManager:
         self.oc_proxy = OrchestratorProxy(orchestrator_host=oc_host)
         self.token_location = token_location
         self.tokens = {}
-        self.project_name = project_name
-        if self.project_name is None:
-            self.project_name = os.environ[Constants.FABRIC_PROJECT_NAME]
+        self.project_id = project_id
+        if self.project_id is None:
+            self.project_id = os.environ[Constants.FABRIC_PROJECT_ID]
         self.scope = scope
         if self.token_location is None:
             self.token_location = os.environ[Constants.FABRIC_TOKEN_LOCATION]
         self.initialized = False
         # Validate the required parameters are set
-        if self.cm_proxy is None or self.oc_proxy is None or self.token_location is None or self.project_name is None:
+        if self.cm_proxy is None or self.oc_proxy is None or self.token_location is None or self.project_id is None:
             raise SliceManagerException(f"Invalid initialization parameters: cm_proxy={self.cm_proxy}, "
                                         f"oc_proxy={self.oc_proxy}, token_location={self.token_location}, "
-                                        f"project_name={self.project_name}")
+                                        f"project_id={self.project_id}")
         if initialize:
             self.initialize()
 
@@ -152,7 +152,7 @@ class SliceManager:
         if refresh_token is None:
             refresh_token = self.get_refresh_token()
 
-        status, tokens = self.cm_proxy.refresh(project_name=self.project_name, scope=self.scope,
+        status, tokens = self.cm_proxy.refresh(project_id=self.project_id, scope=self.scope,
                                                refresh_token=refresh_token, file_name=self.token_location)
         if status == CmStatus.OK:
             self.tokens = tokens

@@ -34,18 +34,18 @@ from .exceptions import TokenExpiredException
 from ..slice_manager.slice_manager import SliceManager, Status
 
 
-def __get_slice_manager(*, oc_host: str = None, cm_host: str = None, project_name: str = None, scope: str = "all",
+def __get_slice_manager(*, oc_host: str = None, cm_host: str = None, project_id: str = None, scope: str = "all",
                         token_location: str = None) -> SliceManager:
     """
     Get Environment Variables
     @param oc_host Orchestrator host
     @param cm_host Credmgr Host
-    @param project_name Project Name
+    @param project_id Project Id
     @param scope Scope
     @param token_location Absolute location of the tokens JSON file
     @raises ClickException in case of error
     """
-    return SliceManager(oc_host=oc_host, cm_host=cm_host, project_name=project_name, scope=scope,
+    return SliceManager(oc_host=oc_host, cm_host=cm_host, project_id=project_id, scope=scope,
                         token_location=token_location)
 
 
@@ -61,21 +61,21 @@ def cli(ctx, verbose):
 @click.pass_context
 def tokens(ctx):
     """ Token management
-        (set $FABRIC_CREDMGR_HOST => CredentialManager, $FABRIC_PROJECT_NAME => Project Name)
+        (set $FABRIC_CREDMGR_HOST => CredentialManager, $FABRIC_project_id => Project Id)
     """
 
 
 @tokens.command()
 @click.option('--cmhost', help='Credmgr Host', default=None)
 @click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--projectname', default=None, help='project name')
+@click.option('--projectid', default=None, help='project name')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='scope')
 @click.pass_context
-def refresh(ctx, cmhost, tokenlocation, projectname, scope):
+def refresh(ctx, cmhost, tokenlocation, projectid, scope):
     """Refresh token
     """
-    slice_manager = __get_slice_manager(cm_host=cmhost, project_name=projectname, scope=scope,
+    slice_manager = __get_slice_manager(cm_host=cmhost, project_id=projectid, scope=scope,
                                         token_location=tokenlocation)
 
     click.echo(f"ID Token: {slice_manager.get_id_token()}")
@@ -103,7 +103,7 @@ def revoke(ctx, cmhost, tokenlocation, refreshtoken):
 @click.pass_context
 def slices(ctx):
     """ Slice management
-        (set $FABRIC_ORCHESTRATOR_HOST => Orchestrator, $FABRIC_CREDMGR_HOST => CredentialManager, $FABRIC_PROJECT_NAME => Project Name)
+        (set $FABRIC_ORCHESTRATOR_HOST => Orchestrator, $FABRIC_CREDMGR_HOST => CredentialManager, $FABRIC_PROJECT_ID => Project Id)
     """
 
 
@@ -111,17 +111,17 @@ def slices(ctx):
 @click.option('--cmhost', help='Credmgr Host', default=None)
 @click.option('--ochost', help='Orchestrator Host', default=None)
 @click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--projectname', default=None, help='project name')
+@click.option('--projectid', default=None, help='project name')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='scope')
 @click.option('--sliceid', default=None, help='Slice Id')
 @click.option('--state', default=None, help='Slice State')
 @click.pass_context
-def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectname: str, scope: str, sliceid: str, state: str):
+def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, sliceid: str, state: str):
     """ Query slice_editor slice(s)
     """
     try:
-        slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_name=projectname, scope=scope,
+        slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
                                             token_location=tokenlocation)
         status = None
         response = None
@@ -154,7 +154,7 @@ def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectname: str, s
 @click.option('--cmhost', help='Credmgr Host', default=None)
 @click.option('--ochost', help='Orchestrator Host', default=None)
 @click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--projectname', default=None, help='project name')
+@click.option('--projectid', default=None, help='project name')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='scope')
 @click.option('--slicename', help='Slice Name', required=True)
@@ -162,12 +162,12 @@ def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectname: str, s
 @click.option('--sshkey', help='SSH Key', required=True)
 @click.option('--leaseend', help='Lease End', default=None)
 @click.pass_context
-def create(ctx, cmhost: str, ochost: str, tokenlocation: str, projectname: str, scope: str, slicename: str,
+def create(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, slicename: str,
            slicegraph: str, sshkey: str, leaseend: str):
     """ Create slice_editor slice
     """
     try:
-        slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_name=projectname, scope=scope,
+        slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
                                             token_location=tokenlocation)
         status, response = slice_manager.create(slice_name=slicename, slice_graph=slicegraph, ssh_key=sshkey,
                                                 lease_end_time=leaseend)
@@ -188,16 +188,16 @@ def create(ctx, cmhost: str, ochost: str, tokenlocation: str, projectname: str, 
 @click.option('--cmhost', help='Credmgr Host', default=None)
 @click.option('--ochost', help='Orchestrator Host', default=None)
 @click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--projectname', default=None, help='project name')
+@click.option('--projectid', default=None, help='project name')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='scope')
 @click.option('--sliceid', help='Slice Id', required=True)
 @click.pass_context
-def delete(ctx, cmhost: str, ochost: str, tokenlocation: str, projectname: str, scope: str, sliceid: str):
+def delete(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, sliceid: str):
     """ Delete slice_editor slice
     """
     try:
-        slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_name=projectname, scope=scope,
+        slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
                                             token_location=tokenlocation)
         slice_object = Slice()
         slice_object.slice_id = sliceid
@@ -219,7 +219,7 @@ def delete(ctx, cmhost: str, ochost: str, tokenlocation: str, projectname: str, 
 @click.pass_context
 def slivers(ctx):
     """ Sliver management
-        (set $FABRIC_ORCHESTRATOR_HOST => Orchestrator, $FABRIC_CREDMGR_HOST => CredentialManager, $FABRIC_PROJECT_NAME => Project Name)
+        (set $FABRIC_ORCHESTRATOR_HOST => Orchestrator, $FABRIC_CREDMGR_HOST => CredentialManager, $FABRIC_PROJECT_ID => Project Id)
     """
 
 
@@ -227,17 +227,17 @@ def slivers(ctx):
 @click.option('--cmhost', help='Credmgr Host', default=None)
 @click.option('--ochost', help='Orchestrator Host', default=None)
 @click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--projectname', default=None, help='project name')
+@click.option('--projectid', default=None, help='project name')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='scope')
 @click.option('--sliceid', help='Slice Id')
 @click.option('--sliverid', default=None, help='Sliver Id')
 @click.pass_context
-def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectname: str, scope: str, sliceid: str, sliverid: str):
+def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, sliceid: str, sliverid: str):
     """ Query slice_editor slice sliver(s)
     """
     try:
-        slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_name=projectname, scope=scope,
+        slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
                                             token_location=tokenlocation)
 
         slice_object = Slice()
@@ -287,7 +287,7 @@ def execute(ctx, sshkeyfile: str, sliceaddress: str, username: str, command: str
 @click.pass_context
 def resources(ctx):
     """ Resource management
-        (set $FABRIC_ORCHESTRATOR_HOST => Orchestrator, $FABRIC_CREDMGR_HOST => CredentialManager, $FABRIC_PROJECT_NAME => Project Name)
+        (set $FABRIC_ORCHESTRATOR_HOST => Orchestrator, $FABRIC_CREDMGR_HOST => CredentialManager, $FABRIC_PROJECT_ID => Project Id)
     """
 
 
@@ -295,15 +295,15 @@ def resources(ctx):
 @click.option('--cmhost', help='Credmgr Host', default=None)
 @click.option('--ochost', help='Orchestrator Host', default=None)
 @click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--projectname', default=None, help='project name')
+@click.option('--projectid', default=None, help='project name')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='scope')
 @click.pass_context
-def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectname: str, scope: str):
+def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str):
     """ Query resources
     """
     try:
-        slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_name=projectname, scope=scope,
+        slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
                                             token_location=tokenlocation)
 
         status, response = slice_manager.resources()
