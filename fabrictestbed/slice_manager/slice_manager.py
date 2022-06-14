@@ -29,10 +29,10 @@ from datetime import datetime, timedelta
 from typing import Tuple, Union, List, Any
 
 import paramiko
+from fabric_cf.orchestrator.swagger_client import Sliver, Slice
 
 from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology, Node, GraphFormat
-from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, CmStatus, Status, Reservation, Slice, \
-    SliceState
+from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, CmStatus, Status, SliceState
 from fabrictestbed.util.constants import Constants
 
 
@@ -174,7 +174,7 @@ class SliceManager:
         return Status.FAILURE, "Refresh Token cannot be None"
 
     def create(self, *, slice_name: str, ssh_key: str, topology: ExperimentTopology = None, slice_graph: str = None,
-               lease_end_time: str = None) -> Tuple[Status, Union[Exception, List[Reservation]]]:
+               lease_end_time: str = None) -> Tuple[Status, Union[Exception, List[Sliver]]]:
         """
         Create a slice
         @param slice_name slice name
@@ -240,20 +240,7 @@ class SliceManager:
         return self.oc_proxy.get_slice(token=self.get_id_token(), slice_id=slice_object.slice_id,
                                        graph_format=graph_format)
 
-    def slice_status(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, Slice]]:
-        """
-        Get slices status
-        @param slice_object slice for which to retrieve the status
-        @return Tuple containing Status and Exception/Json containing slice status
-        """
-        if slice_object is None or not isinstance(slice_object, Slice):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
-
-        if self.__should_renew():
-            self.refresh_tokens()
-        return self.oc_proxy.slice_status(token=self.get_id_token(), slice_id=slice_object.slice_id)
-
-    def slivers(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, List[Reservation]]]:
+    def slivers(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, List[Sliver]]]:
         """
         Get slivers
         @param slice_object list of the slices
@@ -267,20 +254,6 @@ class SliceManager:
 
         return self.oc_proxy.slivers(token=self.get_id_token(), slice_id=slice_object.slice_id)
 
-    def sliver_status(self, *, sliver: Reservation) -> Tuple[Status, Union[Exception, Reservation]]:
-        """
-        Get sliver status
-        @param sliver sliver
-        @return Tuple containing Status and Exception/Json containing Sliver status
-        """
-        if sliver is None or not isinstance(sliver, Reservation):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
-
-        if self.__should_renew():
-            self.refresh_tokens()
-        return self.oc_proxy.sliver_status(token=self.get_id_token(), slice_id=sliver.slice_id,
-                                           sliver_id=sliver.reservation_id)
-
     def resources(self, *, level: int = 1) -> Tuple[Status, Union[Exception, AdvertisedTopology]]:
         """
         Get resources
@@ -291,7 +264,7 @@ class SliceManager:
             self.refresh_tokens()
         return self.oc_proxy.resources(token=self.get_id_token(), level=level)
 
-    def renew(self, *, slice_object: Slice, new_lease_end_time: str) -> Tuple[Status, Union[Exception, List, None]]:
+    def renew(self, *, slice_object: Slice, new_lease_end_time: str) -> Tuple[Status, Union[Exception, None]]:
         """
         Renew a slice
         @param slice_object slice to be renewed
