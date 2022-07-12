@@ -26,8 +26,8 @@
 #
 
 import click
-from fabric_cf.orchestrator.elements.slice import Slice
 from fabric_cf.orchestrator.orchestrator_proxy import SliceState
+from fabric_cf.orchestrator.swagger_client import Slice
 from fim.slivers.network_node import NodeSliver
 
 from .exceptions import TokenExpiredException
@@ -95,6 +95,21 @@ def revoke(ctx, cmhost, tokenlocation, refreshtoken):
     status, error_str = slice_manager.revoke_token(refresh_token=refreshtoken)
     if status == Status.OK:
         click.echo("Token revoked successfully")
+    else:
+        raise click.ClickException(f"Token could not be revoked! Error encountered: {error_str}")
+
+@tokens.command()
+@click.option('--cmhost', help='Credmgr Host', default=None)
+@click.option('--tokenlocation', help='location for the tokens', default=None)
+@click.pass_context
+def clear_cache(ctx, cmhost, tokenlocation):
+    """ Clear cached token
+    """
+    slice_manager = __get_slice_manager(cm_host=cmhost, token_location=tokenlocation)
+
+    status, error_str = slice_manager.clear_token_cache(file_name=tokenlocation)
+    if status == Status.OK:
+        click.echo("Token cache cleared successfully")
     else:
         raise click.ClickException(f"Token could not be revoked! Error encountered: {error_str}")
 

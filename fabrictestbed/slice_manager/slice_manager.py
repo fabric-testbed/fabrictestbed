@@ -113,13 +113,15 @@ class SliceManager:
         Otherwise, this is the first attempt, create the tokens and save them
         """
         # Load the tokens from the JSON
+        refresh_token = None
         if os.path.exists(self.token_location):
             with open(self.token_location, 'r') as stream:
                 self.tokens = json.loads(stream.read())
         else:
             # First time login, use environment variable to load the tokens
             refresh_token = os.environ[Constants.CILOGON_REFRESH_TOKEN]
-            self.refresh_tokens(refresh_token=refresh_token)
+        # Renew the tokens to ensure any project_id changes are taken into account
+        self.refresh_tokens(refresh_token=refresh_token)
 
     def get_refresh_token(self) -> str:
         """
@@ -172,6 +174,20 @@ class SliceManager:
         if token_to_be_revoked is not None:
             return self.cm_proxy.revoke(refresh_token=token_to_be_revoked)
         return Status.FAILURE, "Refresh Token cannot be None"
+
+    def clear_token_cache(self, *, file_name: str = None):
+        """
+        Clear the cached token
+        Should be invoked when the user changes projects
+        @return:
+        """
+        cache_file_name = file_name
+        if cache_file_name is None:
+            cache_file_name = self.token_location
+        status, exception = self.cm_proxy.clear_token_cache(file_name=cache_file_name)
+        if status == CmStatus.OK:
+            return Status.OK
+        raise SliceManagerException(f"Failed to clear token cache: {exception}")
 
     def create(self, *, slice_name: str, ssh_key: str, topology: ExperimentTopology = None, slice_graph: str = None,
                lease_end_time: str = None) -> Tuple[Status, Union[Exception, List[Sliver]]]:
