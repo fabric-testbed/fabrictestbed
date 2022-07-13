@@ -229,17 +229,22 @@ class SliceManager:
             self.refresh_tokens()
         return self.oc_proxy.delete(token=self.get_id_token(), slice_id=slice_object.slice_id)
 
-    def slices(self, includes: List[SliceState] = None,
-               excludes: List[SliceState] = None) -> Tuple[Status, Union[Exception, List[Slice]]]:
+    def slices(self, includes: List[SliceState] = None, excludes: List[SliceState] = None, name: str = None,
+               limit: int = 20, offset: int = 0, slice_id: str = None) -> Tuple[Status, Union[Exception, List[Slice]]]:
         """
         Get slices
         @param includes list of the slice state used to include the slices in the output
         @param excludes list of the slice state used to exclude the slices from the output
+        @param name name of the slice
+        @param limit maximum number of slices to return
+        @param offset offset of the first slice to return
+        @param slice_id slice id
         @return Tuple containing Status and Exception/Json containing slices
         """
         if self.__should_renew():
             self.refresh_tokens()
-        return self.oc_proxy.slices(token=self.get_id_token(), includes=includes, excludes=excludes)
+        return self.oc_proxy.slices(token=self.get_id_token(), includes=includes, excludes=excludes,
+                                    name=name, limit=limit, offset=offset, slice_id=slice_id)
 
     def get_slice_topology(self, *, slice_object: Slice,
                            graph_format: GraphFormat = GraphFormat.GRAPHML) -> Tuple[Status, Union[Exception, ExperimentTopology]]:
