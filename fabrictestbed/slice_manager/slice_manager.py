@@ -29,10 +29,10 @@ from datetime import datetime, timedelta
 from typing import Tuple, Union, List, Any
 
 import paramiko
+from fabric_cf.orchestrator.swagger_client import Sliver, Slice
 
 from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology, Node, GraphFormat
-from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, CmStatus, Status, Reservation, Slice, \
-    SliceState
+from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, CmStatus, Status, SliceState
 from fabrictestbed.util.constants import Constants
 
 
@@ -113,13 +113,15 @@ class SliceManager:
         Otherwise, this is the first attempt, create the tokens and save them
         """
         # Load the tokens from the JSON
+        refresh_token = None
         if os.path.exists(self.token_location):
             with open(self.token_location, 'r') as stream:
                 self.tokens = json.loads(stream.read())
         else:
             # First time login, use environment variable to load the tokens
             refresh_token = os.environ[Constants.CILOGON_REFRESH_TOKEN]
-            self.refresh_tokens(refresh_token=refresh_token)
+        # Renew the tokens to ensure any project_id changes are taken into account
+        self.refresh_tokens(refresh_token=refresh_token)
 
     def get_refresh_token(self) -> str:
         """
@@ -173,8 +175,22 @@ class SliceManager:
             return self.cm_proxy.revoke(refresh_token=token_to_be_revoked)
         return Status.FAILURE, "Refresh Token cannot be None"
 
+    def clear_token_cache(self, *, file_name: str = None):
+        """
+        Clear the cached token
+        Should be invoked when the user changes projects
+        @return:
+        """
+        cache_file_name = file_name
+        if cache_file_name is None:
+            cache_file_name = self.token_location
+        status, exception = self.cm_proxy.clear_token_cache(file_name=cache_file_name)
+        if status == CmStatus.OK:
+            return Status.OK
+        raise SliceManagerException(f"Failed to clear token cache: {exception}")
+
     def create(self, *, slice_name: str, ssh_key: str, topology: ExperimentTopology = None, slice_graph: str = None,
-               lease_end_time: str = None) -> Tuple[Status, Union[Exception, List[Reservation]]]:
+               lease_end_time: str = None) -> Tuple[Status, Union[Exception, List[Sliver]]]:
         """
         Create a slice
         @param slice_name slice name
@@ -213,17 +229,22 @@ class SliceManager:
             self.refresh_tokens()
         return self.oc_proxy.delete(token=self.get_id_token(), slice_id=slice_object.slice_id)
 
-    def slices(self, includes: List[SliceState] = None,
-               excludes: List[SliceState] = None) -> Tuple[Status, Union[Exception, List[Slice]]]:
+    def slices(self, includes: List[SliceState] = None, excludes: List[SliceState] = None, name: str = None,
+               limit: int = 20, offset: int = 0, slice_id: str = None) -> Tuple[Status, Union[Exception, List[Slice]]]:
         """
         Get slices
         @param includes list of the slice state used to include the slices in the output
         @param excludes list of the slice state used to exclude the slices from the output
+        @param name name of the slice
+        @param limit maximum number of slices to return
+        @param offset offset of the first slice to return
+        @param slice_id slice id
         @return Tuple containing Status and Exception/Json containing slices
         """
         if self.__should_renew():
             self.refresh_tokens()
-        return self.oc_proxy.slices(token=self.get_id_token(), includes=includes, excludes=excludes)
+        return self.oc_proxy.slices(token=self.get_id_token(), includes=includes, excludes=excludes,
+                                    name=name, limit=limit, offset=offset, slice_id=slice_id)
 
     def get_slice_topology(self, *, slice_object: Slice,
                            graph_format: GraphFormat = GraphFormat.GRAPHML) -> Tuple[Status, Union[Exception, ExperimentTopology]]:
@@ -240,20 +261,7 @@ class SliceManager:
         return self.oc_proxy.get_slice(token=self.get_id_token(), slice_id=slice_object.slice_id,
                                        graph_format=graph_format)
 
-    def slice_status(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, Slice]]:
-        """
-        Get slices status
-        @param slice_object slice for which to retrieve the status
-        @return Tuple containing Status and Exception/Json containing slice status
-        """
-        if slice_object is None or not isinstance(slice_object, Slice):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
-
-        if self.__should_renew():
-            self.refresh_tokens()
-        return self.oc_proxy.slice_status(token=self.get_id_token(), slice_id=slice_object.slice_id)
-
-    def slivers(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, List[Reservation]]]:
+    def slivers(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, List[Sliver]]]:
         """
         Get slivers
         @param slice_object list of the slices
@@ -267,20 +275,6 @@ class SliceManager:
 
         return self.oc_proxy.slivers(token=self.get_id_token(), slice_id=slice_object.slice_id)
 
-    def sliver_status(self, *, sliver: Reservation) -> Tuple[Status, Union[Exception, Reservation]]:
-        """
-        Get sliver status
-        @param sliver sliver
-        @return Tuple containing Status and Exception/Json containing Sliver status
-        """
-        if sliver is None or not isinstance(sliver, Reservation):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
-
-        if self.__should_renew():
-            self.refresh_tokens()
-        return self.oc_proxy.sliver_status(token=self.get_id_token(), slice_id=sliver.slice_id,
-                                           sliver_id=sliver.reservation_id)
-
     def resources(self, *, level: int = 1) -> Tuple[Status, Union[Exception, AdvertisedTopology]]:
         """
         Get resources
@@ -291,7 +285,7 @@ class SliceManager:
             self.refresh_tokens()
         return self.oc_proxy.resources(token=self.get_id_token(), level=level)
 
-    def renew(self, *, slice_object: Slice, new_lease_end_time: str) -> Tuple[Status, Union[Exception, List, None]]:
+    def renew(self, *, slice_object: Slice, new_lease_end_time: str) -> Tuple[Status, Union[Exception, None]]:
         """
         Renew a slice
         @param slice_object slice to be renewed
