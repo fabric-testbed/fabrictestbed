@@ -240,6 +240,21 @@ class SliceManager:
         return self.oc_proxy.modify(token=self.get_id_token(), slice_id=slice_id, topology=topology,
                                     slice_graph=slice_graph)
 
+    def modify_accept(self, *, slice_id: str) -> Tuple[Status, Union[Exception, ExperimentTopology]]:
+        """
+        Modify an existing slice
+        @param slice_id slice id
+        @param topology Experiment topology
+        @param slice_graph Slice Graph string
+        @return Tuple containing Status and Exception/Json containing slivers created
+        """
+        if slice_id is None or not isinstance(slice_id, str):
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_id")
+
+        if self.__should_renew():
+            self.refresh_tokens()
+        return self.oc_proxy.modify_accept(token=self.get_id_token(), slice_id=slice_id)
+
     def delete(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, None]]:
         """
         Delete slice(s)
