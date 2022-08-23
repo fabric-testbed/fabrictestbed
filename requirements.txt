@@ -1,5 +1,5 @@
 click
 pytest
-fabric-credmgr-client==1.3b1
-fabric-orchestrator-client==1.3b6
+fabric-credmgr-client==1.3.0
+fabric-orchestrator-client==1.3rc7
 paramiko

@@ -313,15 +313,17 @@ class SliceManager:
 
         return self.oc_proxy.slivers(token=self.get_id_token(), slice_id=slice_object.slice_id)
 
-    def resources(self, *, level: int = 1) -> Tuple[Status, Union[Exception, AdvertisedTopology]]:
+    def resources(self, *, level: int = 1,
+                  force_refresh: bool = False) -> Tuple[Status, Union[Exception, AdvertisedTopology]]:
         """
         Get resources
         @param level level
+        @param force_refresh force_refresh
         @return Tuple containing Status and Exception/Json containing Resources
         """
         if self.__should_renew():
             self.refresh_tokens()
-        return self.oc_proxy.resources(token=self.get_id_token(), level=level)
+        return self.oc_proxy.resources(token=self.get_id_token(), level=level, force_refresh=force_refresh)
 
     def renew(self, *, slice_object: Slice, new_lease_end_time: str) -> Tuple[Status, Union[Exception, None]]:
         """
