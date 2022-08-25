@@ -29,10 +29,10 @@ from datetime import datetime, timedelta
 from typing import Tuple, Union, List, Any
 
 import paramiko
+from fabric_cf.orchestrator.swagger_client import Sliver, Slice
 
 from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology, Node, GraphFormat
-from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, CmStatus, Status, Reservation, Slice, \
-    SliceState
+from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, CmStatus, Status, SliceState
 from fabrictestbed.util.constants import Constants
 
 
@@ -113,13 +113,15 @@ class SliceManager:
         Otherwise, this is the first attempt, create the tokens and save them
         """
         # Load the tokens from the JSON
+        refresh_token = None
         if os.path.exists(self.token_location):
             with open(self.token_location, 'r') as stream:
                 self.tokens = json.loads(stream.read())
         else:
             # First time login, use environment variable to load the tokens
             refresh_token = os.environ[Constants.CILOGON_REFRESH_TOKEN]
-            self.refresh_tokens(refresh_token=refresh_token)
+        # Renew the tokens to ensure any project_id changes are taken into account
+        self.refresh_tokens(refresh_token=refresh_token)
 
     def get_refresh_token(self) -> str:
         """
@@ -173,8 +175,22 @@ class SliceManager:
             return self.cm_proxy.revoke(refresh_token=token_to_be_revoked)
         return Status.FAILURE, "Refresh Token cannot be None"
 
+    def clear_token_cache(self, *, file_name: str = None):
+        """
+        Clear the cached token
+        Should be invoked when the user changes projects
+        @return:
+        """
+        cache_file_name = file_name
+        if cache_file_name is None:
+            cache_file_name = self.token_location
+        status, exception = self.cm_proxy.clear_token_cache(file_name=cache_file_name)
+        if status == CmStatus.OK:
+            return Status.OK
+        raise SliceManagerException(f"Failed to clear token cache: {exception}")
+
     def create(self, *, slice_name: str, ssh_key: str, topology: ExperimentTopology = None, slice_graph: str = None,
-               lease_end_time: str = None) -> Tuple[Status, Union[Exception, List[Reservation]]]:
+               lease_end_time: str = None) -> Tuple[Status, Union[Exception, List[Sliver]]]:
         """
         Create a slice
         @param slice_name slice name
@@ -185,21 +201,59 @@ class SliceManager:
         @return Tuple containing Status and Exception/Json containing slivers created
         """
         if slice_name is None or not isinstance(slice_name, str) or ssh_key is None or not isinstance(ssh_key, str):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_name or ssh key")
 
         if topology is not None and not isinstance(topology, ExperimentTopology):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - topology")
 
         if slice_graph is not None and not isinstance(slice_graph, str):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_graph")
 
         if lease_end_time is not None and not isinstance(lease_end_time, str):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - lease_end_time")
 
         if self.__should_renew():
             self.refresh_tokens()
         return self.oc_proxy.create(token=self.get_id_token(), slice_name=slice_name, ssh_key=ssh_key,
                                     topology=topology, slice_graph=slice_graph, lease_end_time=lease_end_time)
+
+    def modify(self, *, slice_id: str, topology: ExperimentTopology = None,
+               slice_graph: str = None) -> Tuple[Status, Union[Exception, List[Sliver]]]:
+        """
+        Modify an existing slice
+        @param slice_id slice id
+        @param topology Experiment topology
+        @param slice_graph Slice Graph string
+        @return Tuple containing Status and Exception/Json containing slivers created
+        """
+        if slice_id is None or not isinstance(slice_id, str):
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_id")
+
+        if topology is not None and not isinstance(topology, ExperimentTopology):
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - topology")
+
+        if slice_graph is not None and not isinstance(slice_graph, str):
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid argument - slice_graph")
+
+        if self.__should_renew():
+            self.refresh_tokens()
+        return self.oc_proxy.modify(token=self.get_id_token(), slice_id=slice_id, topology=topology,
+                                    slice_graph=slice_graph)
+
+    def modify_accept(self, *, slice_id: str) -> Tuple[Status, Union[Exception, ExperimentTopology]]:
+        """
+        Modify an existing slice
+        @param slice_id slice id
+        @param topology Experiment topology
+        @param slice_graph Slice Graph string
+        @return Tuple containing Status and Exception/Json containing slivers created
+        """
+        if slice_id is None or not isinstance(slice_id, str):
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_id")
+
+        if self.__should_renew():
+            self.refresh_tokens()
+        return self.oc_proxy.modify_accept(token=self.get_id_token(), slice_id=slice_id)
 
     def delete(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, None]]:
         """
@@ -208,22 +262,27 @@ class SliceManager:
         @return Tuple containing Status and Exception/Json containing deletion status
         """
         if slice_object is None or not isinstance(slice_object, Slice):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_object")
         if self.__should_renew():
             self.refresh_tokens()
         return self.oc_proxy.delete(token=self.get_id_token(), slice_id=slice_object.slice_id)
 
-    def slices(self, includes: List[SliceState] = None,
-               excludes: List[SliceState] = None) -> Tuple[Status, Union[Exception, List[Slice]]]:
+    def slices(self, includes: List[SliceState] = None, excludes: List[SliceState] = None, name: str = None,
+               limit: int = 20, offset: int = 0, slice_id: str = None) -> Tuple[Status, Union[Exception, List[Slice]]]:
         """
         Get slices
         @param includes list of the slice state used to include the slices in the output
         @param excludes list of the slice state used to exclude the slices from the output
+        @param name name of the slice
+        @param limit maximum number of slices to return
+        @param offset offset of the first slice to return
+        @param slice_id slice id
         @return Tuple containing Status and Exception/Json containing slices
         """
         if self.__should_renew():
             self.refresh_tokens()
-        return self.oc_proxy.slices(token=self.get_id_token(), includes=includes, excludes=excludes)
+        return self.oc_proxy.slices(token=self.get_id_token(), includes=includes, excludes=excludes,
+                                    name=name, limit=limit, offset=offset, slice_id=slice_id)
 
     def get_slice_topology(self, *, slice_object: Slice,
                            graph_format: GraphFormat = GraphFormat.GRAPHML) -> Tuple[Status, Union[Exception, ExperimentTopology]]:
@@ -234,64 +293,39 @@ class SliceManager:
         @return Tuple containing Status and Exception/Json containing slice
         """
         if slice_object is None or not isinstance(slice_object, Slice):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_object")
         if self.__should_renew():
             self.refresh_tokens()
         return self.oc_proxy.get_slice(token=self.get_id_token(), slice_id=slice_object.slice_id,
                                        graph_format=graph_format)
 
-    def slice_status(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, Slice]]:
-        """
-        Get slices status
-        @param slice_object slice for which to retrieve the status
-        @return Tuple containing Status and Exception/Json containing slice status
-        """
-        if slice_object is None or not isinstance(slice_object, Slice):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
-
-        if self.__should_renew():
-            self.refresh_tokens()
-        return self.oc_proxy.slice_status(token=self.get_id_token(), slice_id=slice_object.slice_id)
-
-    def slivers(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, List[Reservation]]]:
+    def slivers(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, List[Sliver]]]:
         """
         Get slivers
         @param slice_object list of the slices
         @return Tuple containing Status and Exception/Json containing Sliver(s)
         """
         if slice_object is None or not isinstance(slice_object, Slice):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_object")
 
         if self.__should_renew():
             self.refresh_tokens()
 
         return self.oc_proxy.slivers(token=self.get_id_token(), slice_id=slice_object.slice_id)
 
-    def sliver_status(self, *, sliver: Reservation) -> Tuple[Status, Union[Exception, Reservation]]:
-        """
-        Get sliver status
-        @param sliver sliver
-        @return Tuple containing Status and Exception/Json containing Sliver status
-        """
-        if sliver is None or not isinstance(sliver, Reservation):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
-
-        if self.__should_renew():
-            self.refresh_tokens()
-        return self.oc_proxy.sliver_status(token=self.get_id_token(), slice_id=sliver.slice_id,
-                                           sliver_id=sliver.reservation_id)
-
-    def resources(self, *, level: int = 1) -> Tuple[Status, Union[Exception, AdvertisedTopology]]:
+    def resources(self, *, level: int = 1,
+                  force_refresh: bool = False) -> Tuple[Status, Union[Exception, AdvertisedTopology]]:
         """
         Get resources
         @param level level
+        @param force_refresh force_refresh
         @return Tuple containing Status and Exception/Json containing Resources
         """
         if self.__should_renew():
             self.refresh_tokens()
-        return self.oc_proxy.resources(token=self.get_id_token(), level=level)
+        return self.oc_proxy.resources(token=self.get_id_token(), level=level, force_refresh=force_refresh)
 
-    def renew(self, *, slice_object: Slice, new_lease_end_time: str) -> Tuple[Status, Union[Exception, List, None]]:
+    def renew(self, *, slice_object: Slice, new_lease_end_time: str) -> Tuple[Status, Union[Exception, None]]:
         """
         Renew a slice
         @param slice_object slice to be renewed
@@ -299,7 +333,8 @@ class SliceManager:
         @return Tuple containing Status and List of Reservation Id failed to extend
        """
         if slice_object is None or not isinstance(slice_object, Slice) or new_lease_end_time is None:
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - "
+                                                                   "slice_object or new_lease_end_time")
 
         if self.__should_renew():
             self.refresh_tokens()
@@ -332,7 +367,8 @@ class SliceManager:
         """
         if sliver is None or not isinstance(sliver, Node) or ssh_key_file is None or\
                 username is None or command is None:
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - sliver or "
+                                                                   "ssh_key_file or username or command")
 
         client = None
         try:
