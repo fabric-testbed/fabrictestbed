@@ -207,6 +207,66 @@ def create(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sc
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='scope')
 @click.option('--sliceid', help='Slice Id', required=True)
+@click.option('--slicegraph', help='Slice Graph', required=True)
+@click.pass_context
+def modify(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, sliceid: str,
+           slicegraph: str):
+    """ Modify an existing slice
+    """
+    try:
+        slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
+                                            token_location=tokenlocation)
+        status, response = slice_manager.modify(slice_id=sliceid, slice_graph=slicegraph)
+
+        if status == Status.OK:
+            click.echo(response)
+        else:
+            click.echo(f'Modify Slice failed: {status.interpret(exception=response)}')
+
+    except TokenExpiredException as e:
+        raise click.ClickException(str(e) +
+                                   ', use \'fabric-cli token refresh\' to refresh token first')
+    except Exception as e:
+        raise click.ClickException(str(e))
+
+
+@slices.command()
+@click.option('--cmhost', help='Credmgr Host', default=None)
+@click.option('--ochost', help='Orchestrator Host', default=None)
+@click.option('--tokenlocation', help='location for the tokens', default=None)
+@click.option('--projectid', default=None, help='project name')
+@click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
+              default='all', help='scope')
+@click.option('--sliceid', help='Slice Id', required=True)
+@click.pass_context
+def modifyaccept(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, sliceid: str):
+    """ Accept the modified slice
+    """
+    try:
+        slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
+                                            token_location=tokenlocation)
+        status, response = slice_manager.modify_accept(slice_id=sliceid)
+
+        if status == Status.OK:
+            click.echo(response)
+        else:
+            click.echo(f'Modify Slice failed: {status.interpret(exception=response)}')
+
+    except TokenExpiredException as e:
+        raise click.ClickException(str(e) +
+                                   ', use \'fabric-cli token refresh\' to refresh token first')
+    except Exception as e:
+        raise click.ClickException(str(e))
+
+
+@slices.command()
+@click.option('--cmhost', help='Credmgr Host', default=None)
+@click.option('--ochost', help='Orchestrator Host', default=None)
+@click.option('--tokenlocation', help='location for the tokens', default=None)
+@click.option('--projectid', default=None, help='project name')
+@click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
+              default='all', help='scope')
+@click.option('--sliceid', help='Slice Id', required=True)
 @click.pass_context
 def delete(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, sliceid: str):
     """ Delete slice_editor slice
@@ -313,15 +373,16 @@ def resources(ctx):
 @click.option('--projectid', default=None, help='project name')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='scope')
+@click.option('--force', default=False, help='Force current snapshot')
 @click.pass_context
-def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str):
+def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, force: bool):
     """ Query resources
     """
     try:
         slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
                                             token_location=tokenlocation)
 
-        status, response = slice_manager.resources()
+        status, response = slice_manager.resources(force_refresh=force)
 
         if status == Status.OK:
             click.echo(response)
