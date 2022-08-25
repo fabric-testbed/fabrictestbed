@@ -201,21 +201,59 @@ class SliceManager:
         @return Tuple containing Status and Exception/Json containing slivers created
         """
         if slice_name is None or not isinstance(slice_name, str) or ssh_key is None or not isinstance(ssh_key, str):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_name or ssh key")
 
         if topology is not None and not isinstance(topology, ExperimentTopology):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - topology")
 
         if slice_graph is not None and not isinstance(slice_graph, str):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_graph")
 
         if lease_end_time is not None and not isinstance(lease_end_time, str):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - lease_end_time")
 
         if self.__should_renew():
             self.refresh_tokens()
         return self.oc_proxy.create(token=self.get_id_token(), slice_name=slice_name, ssh_key=ssh_key,
                                     topology=topology, slice_graph=slice_graph, lease_end_time=lease_end_time)
+
+    def modify(self, *, slice_id: str, topology: ExperimentTopology = None,
+               slice_graph: str = None) -> Tuple[Status, Union[Exception, List[Sliver]]]:
+        """
+        Modify an existing slice
+        @param slice_id slice id
+        @param topology Experiment topology
+        @param slice_graph Slice Graph string
+        @return Tuple containing Status and Exception/Json containing slivers created
+        """
+        if slice_id is None or not isinstance(slice_id, str):
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_id")
+
+        if topology is not None and not isinstance(topology, ExperimentTopology):
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - topology")
+
+        if slice_graph is not None and not isinstance(slice_graph, str):
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid argument - slice_graph")
+
+        if self.__should_renew():
+            self.refresh_tokens()
+        return self.oc_proxy.modify(token=self.get_id_token(), slice_id=slice_id, topology=topology,
+                                    slice_graph=slice_graph)
+
+    def modify_accept(self, *, slice_id: str) -> Tuple[Status, Union[Exception, ExperimentTopology]]:
+        """
+        Modify an existing slice
+        @param slice_id slice id
+        @param topology Experiment topology
+        @param slice_graph Slice Graph string
+        @return Tuple containing Status and Exception/Json containing slivers created
+        """
+        if slice_id is None or not isinstance(slice_id, str):
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_id")
+
+        if self.__should_renew():
+            self.refresh_tokens()
+        return self.oc_proxy.modify_accept(token=self.get_id_token(), slice_id=slice_id)
 
     def delete(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, None]]:
         """
@@ -224,7 +262,7 @@ class SliceManager:
         @return Tuple containing Status and Exception/Json containing deletion status
         """
         if slice_object is None or not isinstance(slice_object, Slice):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_object")
         if self.__should_renew():
             self.refresh_tokens()
         return self.oc_proxy.delete(token=self.get_id_token(), slice_id=slice_object.slice_id)
@@ -255,7 +293,7 @@ class SliceManager:
         @return Tuple containing Status and Exception/Json containing slice
         """
         if slice_object is None or not isinstance(slice_object, Slice):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_object")
         if self.__should_renew():
             self.refresh_tokens()
         return self.oc_proxy.get_slice(token=self.get_id_token(), slice_id=slice_object.slice_id,
@@ -268,22 +306,24 @@ class SliceManager:
         @return Tuple containing Status and Exception/Json containing Sliver(s)
         """
         if slice_object is None or not isinstance(slice_object, Slice):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_object")
 
         if self.__should_renew():
             self.refresh_tokens()
 
         return self.oc_proxy.slivers(token=self.get_id_token(), slice_id=slice_object.slice_id)
 
-    def resources(self, *, level: int = 1) -> Tuple[Status, Union[Exception, AdvertisedTopology]]:
+    def resources(self, *, level: int = 1,
+                  force_refresh: bool = False) -> Tuple[Status, Union[Exception, AdvertisedTopology]]:
         """
         Get resources
         @param level level
+        @param force_refresh force_refresh
         @return Tuple containing Status and Exception/Json containing Resources
         """
         if self.__should_renew():
             self.refresh_tokens()
-        return self.oc_proxy.resources(token=self.get_id_token(), level=level)
+        return self.oc_proxy.resources(token=self.get_id_token(), level=level, force_refresh=force_refresh)
 
     def renew(self, *, slice_object: Slice, new_lease_end_time: str) -> Tuple[Status, Union[Exception, None]]:
         """
@@ -293,7 +333,8 @@ class SliceManager:
         @return Tuple containing Status and List of Reservation Id failed to extend
        """
         if slice_object is None or not isinstance(slice_object, Slice) or new_lease_end_time is None:
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - "
+                                                                   "slice_object or new_lease_end_time")
 
         if self.__should_renew():
             self.refresh_tokens()
@@ -326,7 +367,8 @@ class SliceManager:
         """
         if sliver is None or not isinstance(sliver, Node) or ssh_key_file is None or\
                 username is None or command is None:
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments")
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - sliver or "
+                                                                   "ssh_key_file or username or command")
 
         client = None
         try:
