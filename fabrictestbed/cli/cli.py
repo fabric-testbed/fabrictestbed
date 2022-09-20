@@ -25,6 +25,7 @@
 # Author: Erica Fu (ericafu@renci.org), Komal Thareja (kthare10@renci.org)
 #
 
+import json
 import click
 from fabric_cf.orchestrator.orchestrator_proxy import SliceState
 from fabric_cf.orchestrator.swagger_client import Slice
@@ -47,6 +48,22 @@ def __get_slice_manager(*, oc_host: str = None, cm_host: str = None, project_id:
     """
     return SliceManager(oc_host=oc_host, cm_host=cm_host, project_id=project_id, scope=scope,
                         token_location=token_location)
+
+def __unpack(data) -> dict:
+    """
+    Unpacks embedded json turned from an objects to_dict() method. 
+    @param object_dict Dictionary returned from the Object.to_dict() method
+    """
+    if isinstance(data, str):
+        if data and data[0] in ('{','['): ## starts with - json loads will catch errors
+            data=__unpack(json.loads(data))
+    elif isinstance(data, list):
+        for i,v in enumerate(data):
+            data[i]=__unpack(v)
+    elif isinstance(data, dict):
+        for k,v in data.items():
+            data[k]=__unpack(v)
+    return data
 
 
 @click.group()
@@ -149,12 +166,10 @@ def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sco
         if sliceid is None:
             status, response = slice_manager.slices(includes=includes)
         else:
-            slice_object = Slice()
-            slice_object.slice_id = sliceid
-            status, response = slice_manager.get_slice_topology(slice_object=slice_object)
+            status, response = slice_manager.slices(includes=includes,slice_id=sliceid)
 
         if status == Status.OK:
-            click.echo(response)
+            click.echo(json.dumps(list(map(lambda i: i.to_dict(), response)),indent=2))
         else:
             click.echo(f'Query Slice(s) failed: {status.interpret(exception=response)}')
 
@@ -315,12 +330,16 @@ def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sco
         slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
                                             token_location=tokenlocation)
 
-        slice_object = Slice()
-        slice_object.slice_id = sliceid
+        status, response = slice_manager.slices(slice_id=sliceid)
+        if status != Status.OK:
+            click.echo(f'Query Sliver(s) failed: {status.interpret(exception=response)}')
+            return
+
+        slice_object = response[0]
         status, response = slice_manager.slivers(slice_object=slice_object)
 
         if status == Status.OK:
-            click.echo(response)
+            click.echo(json.dumps(list(map(lambda i: __unpack(i.to_dict()), response)),indent=2))
         else:
             click.echo(f'Query Sliver(s) failed: {status.interpret(exception=response)}')
 
