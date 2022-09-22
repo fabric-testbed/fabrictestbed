@@ -25,6 +25,8 @@
 # Author: Erica Fu (ericafu@renci.org), Komal Thareja (kthare10@renci.org)
 #
 
+from typing import Any
+
 import json
 import click
 from fabric_cf.orchestrator.orchestrator_proxy import SliceState
@@ -49,10 +51,10 @@ def __get_slice_manager(*, oc_host: str = None, cm_host: str = None, project_id:
     return SliceManager(oc_host=oc_host, cm_host=cm_host, project_id=project_id, scope=scope,
                         token_location=token_location)
 
-def __unpack(data) -> dict:
+def __unpack(data: Any) -> Any:
     """
-    Unpacks embedded json turned from an objects to_dict() method. 
-    @param object_dict Dictionary returned from the Object.to_dict() method
+    Recursivly unpacks JSON dictionaries or lists embedded in a list or dict.
+    @param Any to unpack
     """
     if isinstance(data, str):
         if data and data[0] in ('{','['): ## starts with - json loads will catch errors
@@ -163,12 +165,9 @@ def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sco
             if slice_state is not None:
                 includes.append(slice_state)
 
-        if sliceid is None:
-            status, response = slice_manager.slices(includes=includes)
-        else:
-            status, response = slice_manager.slices(includes=includes,slice_id=sliceid)
+        status, response = slice_manager.slices(includes=includes, slice_id=sliceid)
 
-        if status == Status.OK:
+        if status == Status.OK and not isinstance(response, Exception):
             click.echo(json.dumps(list(map(lambda i: i.to_dict(), response)),indent=2))
         else:
             click.echo(f'Query Slice(s) failed: {status.interpret(exception=response)}')
@@ -338,7 +337,7 @@ def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sco
         slice_object = response[0]
         status, response = slice_manager.slivers(slice_object=slice_object)
 
-        if status == Status.OK:
+        if status == Status.OK and not isinstance(response, Exception):
             click.echo(json.dumps(list(map(lambda i: __unpack(i.to_dict()), response)),indent=2))
         else:
             click.echo(f'Query Sliver(s) failed: {status.interpret(exception=response)}')
