@@ -288,8 +288,11 @@ def delete(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sc
     try:
         slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
                                             token_location=tokenlocation)
-        slice_object = Slice()
-        slice_object.slice_id = sliceid
+        status, response = slice_manager.slices(slice_id=sliceid)
+        if status != Status.OK or isinstance(response, Exception):
+            click.echo(f'Delete Slice failed: {status.interpret(exception=response)}')
+            return
+        slice_object = response[0]
         status, response = slice_manager.delete(slice_object=slice_object)
 
         if status == Status.OK:
