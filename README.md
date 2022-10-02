@@ -56,10 +56,15 @@ User API supports token and orchestrator commands. Please refer to Jupyter Noteb
 
 ## Usage (CLI)
 ### Configuration
-User CLI expects the user to set `FABRIC_ORCHESTRATOR_HOST` and `FABRIC_CREDMGR_HOST` environment variables. 
+User CLI expects the user to set following environment variables:
+```
+export FABRIC_ORCHESTRATOR_HOST=orchestrator.fabric-testbed.net
+export FABRIC_CREDMGR_HOST=cm.fabric-testbed.net
+export FABRIC_TOKEN_LOCATION=<location of the token file downloaded from the Portal>
+export FABRIC_PROJECT_ID=<Project Id of the project for which resources are being provisioned>
+```
 
-In addition, User is expected to pass either Fabric Identity Token or Fabric Refresh Token to all the orchestrator commands. 
-Alternatively, user is expected to set at least one of the environment variables `FABRIC_ID_TOKEN` and `FABRIC_REFRESH_TOKEN`.
+Alternatively, user can pass these as parameters to the commands.
 
 #### To enable CLI auto-completion, add following line to your ~/.bashrc
 ```

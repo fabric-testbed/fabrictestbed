@@ -136,7 +136,8 @@ def clear_cache(ctx, cmhost, tokenlocation):
 @click.pass_context
 def slices(ctx):
     """ Slice management
-        (set $FABRIC_ORCHESTRATOR_HOST => Orchestrator, $FABRIC_CREDMGR_HOST => CredentialManager, $FABRIC_PROJECT_ID => Project Id)
+        (set $FABRIC_ORCHESTRATOR_HOST => Orchestrator, $FABRIC_CREDMGR_HOST => CredentialManager,
+        $FABRIC_TOKEN_LOCATION => Location of the token file, $FABRIC_PROJECT_ID => Project Id)
     """
 
 
@@ -310,7 +311,8 @@ def delete(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sc
 @click.pass_context
 def slivers(ctx):
     """ Sliver management
-        (set $FABRIC_ORCHESTRATOR_HOST => Orchestrator, $FABRIC_CREDMGR_HOST => CredentialManager, $FABRIC_PROJECT_ID => Project Id)
+        (set $FABRIC_ORCHESTRATOR_HOST => Orchestrator, $FABRIC_CREDMGR_HOST => CredentialManager,
+        $FABRIC_TOKEN_LOCATION => Location of the token file, $FABRIC_PROJECT_ID => Project Id)
     """
 
 
