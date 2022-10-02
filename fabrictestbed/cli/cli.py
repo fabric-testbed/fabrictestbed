@@ -24,7 +24,6 @@
 #
 # Author: Erica Fu (ericafu@renci.org), Komal Thareja (kthare10@renci.org)
 #
-
 from typing import Any
 
 import json
