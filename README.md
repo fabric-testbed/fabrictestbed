@@ -150,8 +150,6 @@ User CLI expects the user to set `FABRIC_ORCHESTRATOR_HOST` and `FABRIC_CREDMGR_
 In addition, User is expected to pass either Fabric Identity Token or Fabric Refresh Token to all the orchestrator commands. 
 Alternatively, user is expected to set atleast one of the environment variables `FABRIC_ID_TOKEN` and `FABRIC_REFRESH_TOKEN`.
 
-Create config.yml with default content as shown below. 
- 
 #### To enable CLI auto-completion, add following line to your ~/.bashrc
 ```
 eval "$(_FABRIC_CLI_COMPLETE=source_bash fabric-cli)"

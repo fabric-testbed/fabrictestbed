@@ -24,7 +24,7 @@
 #
 # Author: Erica Fu (ericafu@renci.org), Komal Thareja (kthare10@renci.org)
 #
-
+import traceback
 from typing import Any
 
 import json
@@ -349,6 +349,7 @@ def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sco
         raise click.ClickException(str(e) +
                                    ', use \'fabric-cli token refresh\' to refresh token first')
     except Exception as e:
+        traceback.print_exc()
         raise click.ClickException(str(e))
 
 

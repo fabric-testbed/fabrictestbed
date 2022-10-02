@@ -47,19 +47,19 @@ class SliceManager:
     def __init__(self, *, cm_host: str = None, oc_host: str = None, token_location: str = None,
                  project_id: str = None, scope: str = "all", initialize: bool = True):
         if cm_host is None:
-            cm_host = os.environ[Constants.FABRIC_CREDMGR_HOST]
+            cm_host = os.environ.get(Constants.FABRIC_CREDMGR_HOST)
         if oc_host is None:
-            oc_host = os.environ[Constants.FABRIC_ORCHESTRATOR_HOST]
+            oc_host = os.environ.get(Constants.FABRIC_ORCHESTRATOR_HOST)
         self.cm_proxy = CredmgrProxy(credmgr_host=cm_host)
         self.oc_proxy = OrchestratorProxy(orchestrator_host=oc_host)
         self.token_location = token_location
         self.tokens = {}
         self.project_id = project_id
         if self.project_id is None:
-            self.project_id = os.environ[Constants.FABRIC_PROJECT_ID]
+            self.project_id = os.environ.get(Constants.FABRIC_PROJECT_ID)
         self.scope = scope
         if self.token_location is None:
-            self.token_location = os.environ[Constants.FABRIC_TOKEN_LOCATION]
+            self.token_location = os.environ.get(Constants.FABRIC_TOKEN_LOCATION)
         self.initialized = False
         # Validate the required parameters are set
         if self.cm_proxy is None or self.oc_proxy is None or self.token_location is None or self.project_id is None:
@@ -119,7 +119,7 @@ class SliceManager:
                 self.tokens = json.loads(stream.read())
         else:
             # First time login, use environment variable to load the tokens
-            refresh_token = os.environ[Constants.CILOGON_REFRESH_TOKEN]
+            refresh_token = os.environ.get(Constants.CILOGON_REFRESH_TOKEN)
         # Renew the tokens to ensure any project_id changes are taken into account
         self.refresh_tokens(refresh_token=refresh_token)
 
