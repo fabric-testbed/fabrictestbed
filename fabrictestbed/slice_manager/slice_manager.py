@@ -96,7 +96,6 @@ class SliceManager:
         self.__check_initialized()
 
         id_token = self.get_id_token()
-        refresh_token = self.get_refresh_token()
         created_at = self.tokens.get(CredmgrProxy.CREATED_AT, None)
 
         created_at_time = datetime.strptime(created_at, CredmgrProxy.TIME_FORMAT)
@@ -111,12 +110,15 @@ class SliceManager:
         """
         Load Fabric Tokens from the tokens.json if it exists
         Otherwise, this is the first attempt, create the tokens and save them
+        @note this function is invoked when reloading the tokens to ensure tokens
+        from the token file are read instead of the local variables
         """
         # Load the tokens from the JSON
         refresh_token = None
         if os.path.exists(self.token_location):
             with open(self.token_location, 'r') as stream:
                 self.tokens = json.loads(stream.read())
+            refresh_token = self.get_refresh_token()
         else:
             # First time login, use environment variable to load the tokens
             refresh_token = os.environ.get(Constants.CILOGON_REFRESH_TOKEN)
@@ -144,16 +146,15 @@ class SliceManager:
         """
         self.token_location = token_location
 
-    def refresh_tokens(self, *, refresh_token: str = None) -> Tuple[str, str]:
+    def refresh_tokens(self, *, refresh_token: str) -> Tuple[str, str]:
         """
         Refresh tokens
         User is expected to invoke refresh token API before invoking any other APIs to ensure the token is not expired.
         User is also expected to update the returned refresh token in the JupyterHub environment.
         @returns tuple of id token and refresh token
+        @note this exposes an API for the user to refresh tokens explicitly only. CredMgrProxy::refresh already
+        updates the refresh tokens to the token file atomically.
         """
-        if refresh_token is None:
-            refresh_token = self.get_refresh_token()
-
         status, tokens = self.cm_proxy.refresh(project_id=self.project_id, scope=self.scope,
                                                refresh_token=refresh_token, file_name=self.token_location)
         if status == CmStatus.OK:
@@ -186,8 +187,8 @@ class SliceManager:
             cache_file_name = self.token_location
         status, exception = self.cm_proxy.clear_token_cache(file_name=cache_file_name)
         if status == CmStatus.OK:
-            return Status.OK
-        raise SliceManagerException(f"Failed to clear token cache: {exception}")
+            return Status.OK, None
+        return Status.FAILURE, f"Failed to clear token cache: {exception}"
 
     def create(self, *, slice_name: str, ssh_key: str, topology: ExperimentTopology = None, slice_graph: str = None,
                lease_end_time: str = None) -> Tuple[Status, Union[Exception, List[Sliver]]]:
@@ -213,7 +214,7 @@ class SliceManager:
             return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - lease_end_time")
 
         if self.__should_renew():
-            self.refresh_tokens()
+            self.__load_tokens()
         return self.oc_proxy.create(token=self.get_id_token(), slice_name=slice_name, ssh_key=ssh_key,
                                     topology=topology, slice_graph=slice_graph, lease_end_time=lease_end_time)
 
@@ -236,7 +237,7 @@ class SliceManager:
             return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid argument - slice_graph")
 
         if self.__should_renew():
-            self.refresh_tokens()
+            self.__load_tokens()
         return self.oc_proxy.modify(token=self.get_id_token(), slice_id=slice_id, topology=topology,
                                     slice_graph=slice_graph)
 
@@ -252,7 +253,7 @@ class SliceManager:
             return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_id")
 
         if self.__should_renew():
-            self.refresh_tokens()
+            self.__load_tokens()
         return self.oc_proxy.modify_accept(token=self.get_id_token(), slice_id=slice_id)
 
     def delete(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, None]]:
@@ -264,7 +265,7 @@ class SliceManager:
         if slice_object is None or not isinstance(slice_object, Slice):
             return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_object")
         if self.__should_renew():
-            self.refresh_tokens()
+            self.__load_tokens()
         return self.oc_proxy.delete(token=self.get_id_token(), slice_id=slice_object.slice_id)
 
     def slices(self, includes: List[SliceState] = None, excludes: List[SliceState] = None, name: str = None,
@@ -280,7 +281,7 @@ class SliceManager:
         @return Tuple containing Status and Exception/Json containing slices
         """
         if self.__should_renew():
-            self.refresh_tokens()
+            self.__load_tokens()
         return self.oc_proxy.slices(token=self.get_id_token(), includes=includes, excludes=excludes,
                                     name=name, limit=limit, offset=offset, slice_id=slice_id)
 
@@ -295,7 +296,7 @@ class SliceManager:
         if slice_object is None or not isinstance(slice_object, Slice):
             return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_object")
         if self.__should_renew():
-            self.refresh_tokens()
+            self.__load_tokens()
         return self.oc_proxy.get_slice(token=self.get_id_token(), slice_id=slice_object.slice_id,
                                        graph_format=graph_format)
 
@@ -309,7 +310,7 @@ class SliceManager:
             return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_object")
 
         if self.__should_renew():
-            self.refresh_tokens()
+            self.__load_tokens()
 
         return self.oc_proxy.slivers(token=self.get_id_token(), slice_id=slice_object.slice_id)
 
@@ -322,7 +323,7 @@ class SliceManager:
         @return Tuple containing Status and Exception/Json containing Resources
         """
         if self.__should_renew():
-            self.refresh_tokens()
+            self.__load_tokens()
         return self.oc_proxy.resources(token=self.get_id_token(), level=level, force_refresh=force_refresh)
 
     def renew(self, *, slice_object: Slice, new_lease_end_time: str) -> Tuple[Status, Union[Exception, None]]:
@@ -337,7 +338,7 @@ class SliceManager:
                                                                    "slice_object or new_lease_end_time")
 
         if self.__should_renew():
-            self.refresh_tokens()
+            self.__load_tokens()
 
         return self.oc_proxy.renew(token=self.get_id_token(), slice_id=slice_object.slice_id,
                                    new_lease_end_time=new_lease_end_time)
