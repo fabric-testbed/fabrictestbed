@@ -20,6 +20,9 @@ setuptools.setup(
     packages=setuptools.find_packages(),
     include_package_data=True,
     install_requires=requirements,
+    extras_require={
+        "test": ["pytest"],
+    },
     entry_points='''
         [console_scripts]
         fabric-cli=fabrictestbed.cli.cli:cli
