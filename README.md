@@ -30,11 +30,6 @@ Command | SubCommand | Action | Input | Output
 ## Requirements
 Python 3.9+
 
-## Pre-requisites
-Ensure that following are installed
-- `virtualenv`
-- `virtualenvwrapper`
-
 ## Installation
 Multiple installation options possible. For CF development the recommended method is to install from GitHub MASTER branch:
 ```
@@ -48,6 +43,13 @@ $ mkvirtualenv fabrictestbed
 $ workon fabrictestbed
 $ pip install fabrictestbed
 ```
+
+### Pre-requisites for the install example above
+Ensure that following are installed
+- `virtualenv`
+- `virtualenvwrapper`
+
+NOTE: Any of the virtual environment tools (`venv`, `virtualenv`, or `virtualenvwrapper`) should work.
 
 ## Usage (API)
 User API supports token and orchestrator commands. Please refer to Jupyter Notebooks [here](https://github.com/fabric-testbed/jupyter-examples/tree/master/fabric_examples/beta_functionality) for examples.
