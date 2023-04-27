@@ -256,17 +256,16 @@ class SliceManager:
             self.__load_tokens()
         return self.oc_proxy.modify_accept(token=self.get_id_token(), slice_id=slice_id)
 
-    def delete(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, None]]:
+    def delete(self, *, slice_object: Slice = None) -> Tuple[Status, Union[Exception, None]]:
         """
         Delete slice(s)
         @param slice_object slice to be deleted
         @return Tuple containing Status and Exception/Json containing deletion status
         """
-        if slice_object is None or not isinstance(slice_object, Slice):
-            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_object")
         if self.__should_renew():
             self.__load_tokens()
-        return self.oc_proxy.delete(token=self.get_id_token(), slice_id=slice_object.slice_id)
+        slice_id = slice_object.slice_id if slice_object is not None else None
+        return self.oc_proxy.delete(token=self.get_id_token(), slice_id=slice_id)
 
     def slices(self, includes: List[SliceState] = None, excludes: List[SliceState] = None, name: str = None,
                limit: int = 20, offset: int = 0, slice_id: str = None) -> Tuple[Status, Union[Exception, List[Slice]]]:
