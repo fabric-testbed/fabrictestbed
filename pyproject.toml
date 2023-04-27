@@ -23,7 +23,7 @@ dependencies = [
     "paramiko"
     ]
 
-scripts = "fabric-cli=fabrictestbed.cli.cli:cli"
+scripts = {"fabric-cli" = "fabrictestbed.cli.cli:cli"}
 
 [project.urls]
 Home = "https://fabric-testbed.net/"
