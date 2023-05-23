@@ -190,18 +190,18 @@ class SliceManager:
             return Status.OK, None
         return Status.FAILURE, f"Failed to clear token cache: {exception}"
 
-    def create(self, *, slice_name: str, ssh_key: str, topology: ExperimentTopology = None, slice_graph: str = None,
-               lease_end_time: str = None) -> Tuple[Status, Union[Exception, List[Sliver]]]:
+    def create(self, *, slice_name: str, ssh_key: Union[str, List[str]], topology: ExperimentTopology = None,
+               slice_graph: str = None, lease_end_time: str = None) -> Tuple[Status, Union[Exception, List[Sliver]]]:
         """
         Create a slice
         @param slice_name slice name
-        @param ssh_key SSH Key
+        @param ssh_key SSH Key(s)
         @param topology Experiment topology
         @param slice_graph Slice Graph string
         @param lease_end_time Lease End Time
         @return Tuple containing Status and Exception/Json containing slivers created
         """
-        if slice_name is None or not isinstance(slice_name, str) or ssh_key is None or not isinstance(ssh_key, str):
+        if slice_name is None or not isinstance(slice_name, str) or ssh_key is None:
             return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_name or ssh key")
 
         if topology is not None and not isinstance(topology, ExperimentTopology):
@@ -268,7 +268,8 @@ class SliceManager:
         return self.oc_proxy.delete(token=self.get_id_token(), slice_id=slice_id)
 
     def slices(self, includes: List[SliceState] = None, excludes: List[SliceState] = None, name: str = None,
-               limit: int = 20, offset: int = 0, slice_id: str = None) -> Tuple[Status, Union[Exception, List[Slice]]]:
+               limit: int = 20, offset: int = 0, slice_id: str = None,
+               as_self: bool = True) -> Tuple[Status, Union[Exception, List[Slice]]]:
         """
         Get slices
         @param includes list of the slice state used to include the slices in the output
@@ -277,19 +278,21 @@ class SliceManager:
         @param limit maximum number of slices to return
         @param offset offset of the first slice to return
         @param slice_id slice id
+        @param as_self
         @return Tuple containing Status and Exception/Json containing slices
         """
         if self.__should_renew():
             self.__load_tokens()
         return self.oc_proxy.slices(token=self.get_id_token(), includes=includes, excludes=excludes,
-                                    name=name, limit=limit, offset=offset, slice_id=slice_id)
+                                    name=name, limit=limit, offset=offset, slice_id=slice_id, as_self=as_self)
 
-    def get_slice_topology(self, *, slice_object: Slice,
-                           graph_format: GraphFormat = GraphFormat.GRAPHML) -> Tuple[Status, Union[Exception, ExperimentTopology]]:
+    def get_slice_topology(self, *, slice_object: Slice, graph_format: GraphFormat = GraphFormat.GRAPHML,
+                           as_self: bool = True) -> Tuple[Status, Union[Exception, ExperimentTopology]]:
         """
         Get slice topology
         @param slice_object Slice for which to retrieve the topology
         @param graph_format
+        @param as_self
         @return Tuple containing Status and Exception/Json containing slice
         """
         if slice_object is None or not isinstance(slice_object, Slice):
@@ -297,12 +300,13 @@ class SliceManager:
         if self.__should_renew():
             self.__load_tokens()
         return self.oc_proxy.get_slice(token=self.get_id_token(), slice_id=slice_object.slice_id,
-                                       graph_format=graph_format)
+                                       graph_format=graph_format, as_self=as_self)
 
-    def slivers(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, List[Sliver]]]:
+    def slivers(self, *, slice_object: Slice, as_self: bool = True) -> Tuple[Status, Union[Exception, List[Sliver]]]:
         """
         Get slivers
         @param slice_object list of the slices
+        @param as_self
         @return Tuple containing Status and Exception/Json containing Sliver(s)
         """
         if slice_object is None or not isinstance(slice_object, Slice):
@@ -311,7 +315,7 @@ class SliceManager:
         if self.__should_renew():
             self.__load_tokens()
 
-        return self.oc_proxy.slivers(token=self.get_id_token(), slice_id=slice_object.slice_id)
+        return self.oc_proxy.slivers(token=self.get_id_token(), slice_id=slice_object.slice_id, as_self=as_self)
 
     def resources(self, *, level: int = 1,
                   force_refresh: bool = False) -> Tuple[Status, Union[Exception, AdvertisedTopology]]:
