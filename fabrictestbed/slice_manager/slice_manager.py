@@ -26,10 +26,11 @@
 import json
 import os
 from datetime import datetime, timedelta
-from typing import Tuple, Union, List, Any
+from typing import Tuple, Union, List, Any, Dict
 
 import paramiko
 from fabric_cf.orchestrator.swagger_client import Sliver, Slice
+from fabric_cf.orchestrator.swagger_client.models import PoaData
 
 from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology, Node, GraphFormat
 from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, CmStatus, Status, SliceState
@@ -190,18 +191,18 @@ class SliceManager:
             return Status.OK, None
         return Status.FAILURE, f"Failed to clear token cache: {exception}"
 
-    def create(self, *, slice_name: str, ssh_key: str, topology: ExperimentTopology = None, slice_graph: str = None,
-               lease_end_time: str = None) -> Tuple[Status, Union[Exception, List[Sliver]]]:
+    def create(self, *, slice_name: str, ssh_key: Union[str, List[str]], topology: ExperimentTopology = None,
+               slice_graph: str = None, lease_end_time: str = None) -> Tuple[Status, Union[Exception, List[Sliver]]]:
         """
         Create a slice
         @param slice_name slice name
-        @param ssh_key SSH Key
+        @param ssh_key SSH Key(s)
         @param topology Experiment topology
         @param slice_graph Slice Graph string
         @param lease_end_time Lease End Time
         @return Tuple containing Status and Exception/Json containing slivers created
         """
-        if slice_name is None or not isinstance(slice_name, str) or ssh_key is None or not isinstance(ssh_key, str):
+        if slice_name is None or not isinstance(slice_name, str) or ssh_key is None:
             return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_name or ssh key")
 
         if topology is not None and not isinstance(topology, ExperimentTopology):
@@ -268,7 +269,8 @@ class SliceManager:
         return self.oc_proxy.delete(token=self.get_id_token(), slice_id=slice_id)
 
     def slices(self, includes: List[SliceState] = None, excludes: List[SliceState] = None, name: str = None,
-               limit: int = 20, offset: int = 0, slice_id: str = None) -> Tuple[Status, Union[Exception, List[Slice]]]:
+               limit: int = 20, offset: int = 0, slice_id: str = None,
+               as_self: bool = True) -> Tuple[Status, Union[Exception, List[Slice]]]:
         """
         Get slices
         @param includes list of the slice state used to include the slices in the output
@@ -277,19 +279,21 @@ class SliceManager:
         @param limit maximum number of slices to return
         @param offset offset of the first slice to return
         @param slice_id slice id
+        @param as_self
         @return Tuple containing Status and Exception/Json containing slices
         """
         if self.__should_renew():
             self.__load_tokens()
         return self.oc_proxy.slices(token=self.get_id_token(), includes=includes, excludes=excludes,
-                                    name=name, limit=limit, offset=offset, slice_id=slice_id)
+                                    name=name, limit=limit, offset=offset, slice_id=slice_id, as_self=as_self)
 
-    def get_slice_topology(self, *, slice_object: Slice,
-                           graph_format: GraphFormat = GraphFormat.GRAPHML) -> Tuple[Status, Union[Exception, ExperimentTopology]]:
+    def get_slice_topology(self, *, slice_object: Slice, graph_format: GraphFormat = GraphFormat.GRAPHML,
+                           as_self: bool = True) -> Tuple[Status, Union[Exception, ExperimentTopology]]:
         """
         Get slice topology
         @param slice_object Slice for which to retrieve the topology
         @param graph_format
+        @param as_self
         @return Tuple containing Status and Exception/Json containing slice
         """
         if slice_object is None or not isinstance(slice_object, Slice):
@@ -297,12 +301,13 @@ class SliceManager:
         if self.__should_renew():
             self.__load_tokens()
         return self.oc_proxy.get_slice(token=self.get_id_token(), slice_id=slice_object.slice_id,
-                                       graph_format=graph_format)
+                                       graph_format=graph_format, as_self=as_self)
 
-    def slivers(self, *, slice_object: Slice) -> Tuple[Status, Union[Exception, List[Sliver]]]:
+    def slivers(self, *, slice_object: Slice, as_self: bool = True) -> Tuple[Status, Union[Exception, List[Sliver]]]:
         """
         Get slivers
         @param slice_object list of the slices
+        @param as_self
         @return Tuple containing Status and Exception/Json containing Sliver(s)
         """
         if slice_object is None or not isinstance(slice_object, Slice):
@@ -311,7 +316,7 @@ class SliceManager:
         if self.__should_renew():
             self.__load_tokens()
 
-        return self.oc_proxy.slivers(token=self.get_id_token(), slice_id=slice_object.slice_id)
+        return self.oc_proxy.slivers(token=self.get_id_token(), slice_id=slice_object.slice_id, as_self=as_self)
 
     def resources(self, *, level: int = 1,
                   force_refresh: bool = False) -> Tuple[Status, Union[Exception, AdvertisedTopology]]:
@@ -341,6 +346,40 @@ class SliceManager:
 
         return self.oc_proxy.renew(token=self.get_id_token(), slice_id=slice_object.slice_id,
                                    new_lease_end_time=new_lease_end_time)
+
+    def poa(self, *, sliver_id: str, operation: str, vcpu_cpu_map: List[Dict[str, str]] = None,
+            node_set: List[str] = None) ->Tuple[Status, Union[Exception, List[PoaData]]]:
+        """
+        Issue POA for a sliver
+        @param sliver_id sliver Id for which to trigger POA
+        @param operation operation
+        @param vcpu_cpu_map list of mappings from virtual CPU to physical cpu
+        @param node_set list of the numa nodes
+        @return Tuple containing Status and POA information
+       """
+        if sliver_id is None or operation is None:
+            return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - sliver_id or operation")
+
+        if self.__should_renew():
+            self.__load_tokens()
+
+        return self.oc_proxy.poa(token=self.get_id_token(), sliver_id=sliver_id, operation=operation,
+                                 vcpu_cpu_map=vcpu_cpu_map, node_set=node_set)
+
+    def get_poas(self, sliver_id: str = None, poa_id: str = None, limit: int = 20,
+                 offset: int = 0, ) -> Tuple[Status, Union[Exception, List[PoaData]]]:
+        """
+        Get POAs
+        @param sliver_id sliver Id for which to trigger POA
+        @param limit maximum number of slices to return
+        @param offset offset of the first slice to return
+        @param poa_id POA id identifying the POA
+        @return Tuple containing Status and POA information
+        """
+        if self.__should_renew():
+            self.__load_tokens()
+        return self.oc_proxy.get_poas(token=self.get_id_token(), limit=limit, offset=offset, sliver_id=sliver_id,
+                                      poa_id=poa_id)
 
     @staticmethod
     def __get_ssh_client() -> paramiko.SSHClient():
