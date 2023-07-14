@@ -24,8 +24,9 @@
 #
 # Author: Komal Thareja (kthare10@renci.org)
 import json
+import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Tuple, Union, List, Any, Dict
 
 import paramiko
@@ -47,6 +48,7 @@ class SliceManager:
     """
     def __init__(self, *, cm_host: str = None, oc_host: str = None, token_location: str = None,
                  project_id: str = None, scope: str = "all", initialize: bool = True):
+        self.logger = logging.getLogger()
         if cm_host is None:
             cm_host = os.environ.get(Constants.FABRIC_CREDMGR_HOST)
         if oc_host is None:
@@ -100,7 +102,7 @@ class SliceManager:
         created_at = self.tokens.get(CredmgrProxy.CREATED_AT, None)
 
         created_at_time = datetime.strptime(created_at, CredmgrProxy.TIME_FORMAT)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         if id_token is None or now - created_at_time >= timedelta(minutes=30):
             return True
@@ -115,7 +117,6 @@ class SliceManager:
         from the token file are read instead of the local variables
         """
         # Load the tokens from the JSON
-        refresh_token = None
         if os.path.exists(self.token_location):
             with open(self.token_location, 'r') as stream:
                 self.tokens = json.loads(stream.read())
@@ -123,6 +124,10 @@ class SliceManager:
         else:
             # First time login, use environment variable to load the tokens
             refresh_token = os.environ.get(Constants.CILOGON_REFRESH_TOKEN)
+        if refresh_token is None:
+            #raise SliceManagerException(f"Unable to refresh tokens: no refresh token found!")
+            self.logger.warning("Unable to refresh tokens: no refresh token found!")
+            return
         # Renew the tokens to ensure any project_id changes are taken into account
         self.refresh_tokens(refresh_token=refresh_token)
 
