@@ -32,6 +32,7 @@ from typing import Tuple, Union, List, Any, Dict
 import paramiko
 from fabric_cf.orchestrator.swagger_client import Sliver, Slice
 from fabric_cf.orchestrator.swagger_client.models import PoaData
+from fabric_cm.credmgr.credmgr_proxy import TokenType
 
 from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology, Node, GraphFormat
 from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, CmStatus, Status, SliceState
@@ -168,19 +169,29 @@ class SliceManager:
             return tokens.get(CredmgrProxy.ID_TOKEN, None), tokens.get(CredmgrProxy.REFRESH_TOKEN, None)
         raise SliceManagerException(tokens.get(CredmgrProxy.ERROR))
 
-    def revoke_token(self, *, refresh_token: str = None) -> Tuple[Status, Any]:
+    def revoke_token(self, *, refresh_token: str = None, id_token: str = None,
+                     token_type: TokenType = TokenType.Refresh) -> Tuple[Status, Any]:
         """
         Revoke a refresh token
         @param refresh_token Refresh Token to be revoked
+        @param id_token Identity Token
+        @param token_type type of the token being revoked
         @return Tuple of the status and revoked refresh token
         """
-        token_to_be_revoked = refresh_token
-        if token_to_be_revoked is None:
-            token_to_be_revoked = self.get_refresh_token()
+        if refresh_token is None:
+            refresh_token = self.get_refresh_token()
+        if id_token is None:
+            id_token = self.get_id_token()
 
-        if token_to_be_revoked is not None:
-            return self.cm_proxy.revoke(refresh_token=token_to_be_revoked)
-        return Status.FAILURE, "Refresh Token cannot be None"
+        return self.cm_proxy.revoke(refresh_token=refresh_token, identity_token=id_token, token_type=token_type)
+
+    def token_revoke_list(self, *, project_id: str) -> Tuple[Status, Union[Exception, List[str]]]:
+        """
+        Get Token Revoke list for a project
+        @param project_id project_id
+        @return token revoke list
+        """
+        return self.cm_proxy.token_revoke_list(project_id=project_id)
 
     def clear_token_cache(self, *, file_name: str = None):
         """
