@@ -364,13 +364,14 @@ class SliceManager:
                                    new_lease_end_time=new_lease_end_time)
 
     def poa(self, *, sliver_id: str, operation: str, vcpu_cpu_map: List[Dict[str, str]] = None,
-            node_set: List[str] = None) ->Tuple[Status, Union[Exception, List[PoaData]]]:
+            node_set: List[str] = None, keys: List[Dict[str, str]] = None) ->Tuple[Status, Union[Exception, List[PoaData]]]:
         """
         Issue POA for a sliver
         @param sliver_id sliver Id for which to trigger POA
         @param operation operation
         @param vcpu_cpu_map list of mappings from virtual CPU to physical cpu
         @param node_set list of the numa nodes
+        @param keys list of keys to add/remove
         @return Tuple containing Status and POA information
        """
         if sliver_id is None or operation is None:
@@ -380,7 +381,7 @@ class SliceManager:
             self.__load_tokens()
 
         return self.oc_proxy.poa(token=self.get_id_token(), sliver_id=sliver_id, operation=operation,
-                                 vcpu_cpu_map=vcpu_cpu_map, node_set=node_set)
+                                 vcpu_cpu_map=vcpu_cpu_map, node_set=node_set, keys=keys)
 
     def get_poas(self, sliver_id: str = None, poa_id: str = None, limit: int = 20,
                  offset: int = 0, ) -> Tuple[Status, Union[Exception, List[PoaData]]]:
