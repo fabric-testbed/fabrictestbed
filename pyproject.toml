@@ -18,7 +18,7 @@ keywords = ["Swagger", "FABRIC Python Client Library with CLI"]
 requires-python = '>=3.9'
 dependencies = [
     "click",
-    "fabric-credmgr-client==1.6.0b8",
+    "fabric-credmgr-client==1.6.0b9",
     "fabric-orchestrator-client==1.6.0b3",
     "paramiko"
     ]
