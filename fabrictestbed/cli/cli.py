@@ -24,31 +24,37 @@
 #
 # Author: Erica Fu (ericafu@renci.org), Komal Thareja (kthare10@renci.org)
 #
+import os
+import traceback
 from typing import Any
 
 import json
 import click
 from fabric_cf.orchestrator.orchestrator_proxy import SliceState
-from fabric_cf.orchestrator.swagger_client import Slice
+from fabric_cm.credmgr.credmgr_proxy import TokenType
 from fim.slivers.network_node import NodeSliver
 
 from .exceptions import TokenExpiredException
+from ..slice_manager import CredmgrProxy
 from ..slice_manager.slice_manager import SliceManager, Status
+from ..util.constants import Constants
 
 
 def __get_slice_manager(*, oc_host: str = None, cm_host: str = None, project_id: str = None, scope: str = "all",
-                        token_location: str = None) -> SliceManager:
+                        token_location: str = None, project_name: str = None) -> SliceManager:
     """
     Get Environment Variables
     @param oc_host Orchestrator host
     @param cm_host Credmgr Host
     @param project_id Project Id
+    @param project_name Project Name
     @param scope Scope
     @param token_location Absolute location of the tokens JSON file
     @raises ClickException in case of error
     """
     return SliceManager(oc_host=oc_host, cm_host=cm_host, project_id=project_id, scope=scope,
-                        token_location=token_location)
+                        token_location=token_location, project_name=project_name)
+
 
 def __unpack(data: Any) -> Any:
     """
@@ -85,36 +91,192 @@ def tokens(ctx):
 
 @tokens.command()
 @click.option('--cmhost', help='Credmgr Host', default=None)
-@click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--projectid', default=None, help='project name')
+@click.option('--projectid', default=None, help='Project id')
+@click.option('--projectname', default=None, help='Project name')
+@click.option('--lifetime', default=4, help='Token lifetime in hours')
+@click.option('--comment', default=None, help='Comment/note to associate with the token')
+@click.option('--browser', default="chrome", type=click.Choice(['chrome', 'firefox', 'safari', 'edge'],
+                                                               case_sensitive=False),
+              help='Browser to use to launch the web app!')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='scope')
+@click.option('--filename', help='Location and name of the while in which to store tokens', default=None)
 @click.pass_context
-def refresh(ctx, cmhost, tokenlocation, projectid, scope):
+def create(ctx, cmhost: str, projectid: str, projectname: str, lifetime: int, comment: str,
+           browser: str, scope: str, filename: str):
+    """Create token
+    """
+    try:
+        if cmhost is None and os.environ.get(Constants.FABRIC_CREDMGR_HOST) is None:
+            raise click.ClickException(f"Credential Manager Host must be specified!")
+
+        if projectname is None and os.environ.get(Constants.FABRIC_PROJECT_NAME) is None and projectid is None and \
+                os.environ.get(Constants.FABRIC_PROJECT_ID) is None:
+            raise click.ClickException(f"Either Project Name or Project Id must be specified!")
+
+        cookie_name = os.getenv(Constants.FABRIC_COOKIE_NAME)
+        if cmhost is None:
+            cmhost = os.getenv(Constants.FABRIC_CREDMGR_HOST)
+
+        if cookie_name is not None:
+            cm_proxy = CredmgrProxy(credmgr_host=cmhost, cookie_name=cookie_name)
+        else:
+            cm_proxy = CredmgrProxy(credmgr_host=cmhost)
+
+        status, token_or_exception = cm_proxy.create(project_id=projectid, project_name=projectname,
+                                                     life_time_in_hours=lifetime, comment=comment,
+                                                     browser_name=browser, scope=scope, file_name=filename)
+
+        from fabric_cm.credmgr.credmgr_proxy import Status as CmStatus
+        if status == CmStatus.OK:
+            if filename is None:
+                click.echo(f"Fabric Token: {token_or_exception}")
+            else:
+                click.echo(f"Fabric Token saved at: {filename}")
+        else:
+            raise click.ClickException(f"Token could not be created! Error encountered: {token_or_exception}")
+    except click.ClickException as e:
+        raise e
+    except Exception as e:
+        raise click.ClickException(str(e))
+
+
+@tokens.command()
+@click.option('--cmhost', help='Credmgr Host', default=None)
+@click.option('--tokenlocation', help='Location of the file which contains the valid tokens', default=None)
+@click.option('--projectid', default=None, help='Project Id')
+@click.option('--projectname', default=None, help='Project name')
+@click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
+              default='all', help='Scope')
+@click.pass_context
+def refresh(ctx, cmhost: str, tokenlocation: str, projectid: str, projectname: str, scope: str):
     """Refresh token
     """
-    slice_manager = __get_slice_manager(cm_host=cmhost, project_id=projectid, scope=scope,
-                                        token_location=tokenlocation)
+    try:
+        if cmhost is None and os.environ.get(Constants.FABRIC_CREDMGR_HOST) is None:
+            raise click.ClickException(f"Credential Manager Host must be specified!")
 
-    click.echo(f"ID Token: {slice_manager.get_id_token()}")
-    click.echo(f"Refresh Token: {slice_manager.get_refresh_token()}")
+        if tokenlocation is None and os.environ.get(Constants.FABRIC_TOKEN_LOCATION) is None:
+            raise click.ClickException(f"Token location must be specified !")
+
+        if projectname is None and os.environ.get(Constants.FABRIC_PROJECT_NAME) is None and projectid is None and \
+                os.environ.get(Constants.FABRIC_PROJECT_ID) is None:
+            raise click.ClickException(f"Either Project Name or Project Id must be specified!")
+
+        if tokenlocation is None:
+            tokenlocation = os.getenv(Constants.FABRIC_TOKEN_LOCATION)
+
+        slice_manager = __get_slice_manager(cm_host=cmhost, project_id=projectid, scope=scope,
+                                            token_location=tokenlocation, project_name=projectname)
+
+        click.echo(f"ID Token: {slice_manager.get_id_token()}")
+        click.echo(f"Refresh Token: {slice_manager.get_refresh_token()}")
+        click.echo(f"Refreshed token saved at: {tokenlocation}")
+    except click.ClickException as e:
+        raise e
+    except Exception as e:
+        raise click.ClickException(str(e))
+
+
+@tokens.command()
+@click.option('--cmhost', help='Credmgr Host', default=None)
+@click.option('--tokenlocation', help='Location of the file which contains the valid tokens', default=None)
+@click.option('--refreshtoken', help='Refresh token to be revoked; '
+                                     'If specified refresh token from tokenlocation is ignored!', default=None)
+@click.option('--identitytoken', help='Identity token to authenticate the user; '
+                                      'If specified identity token from tokenlocation is ignored', default=None)
+@click.pass_context
+def revoke(ctx, cmhost: str, tokenlocation: str, refreshtoken: str, identitytoken: str):
+    """ Revoke token
+    """
+    try:
+        fail = False
+        if cmhost is None and os.environ.get(Constants.FABRIC_CREDMGR_HOST) is None:
+            raise click.ClickException(f"Credential Manager Host must be specified!")
+
+        if tokenlocation is None and os.environ.get(Constants.FABRIC_TOKEN_LOCATION) is None and \
+                refreshtoken is None and identitytoken is None:
+            raise click.ClickException(f"Either Token location must be specified or pass refresh "
+                                       f"token and identity token!")
+
+        # Token in the file located at tokenlocation is being revoked
+        if tokenlocation is not None or os.environ.get(Constants.FABRIC_TOKEN_LOCATION) is not None:
+            if tokenlocation is None:
+                tokenlocation = os.getenv(Constants.FABRIC_TOKEN_LOCATION)
+
+            if os.path.exists(tokenlocation):
+                with open(tokenlocation, 'r') as stream:
+                    tokens = json.loads(stream.read())
+                    refreshtoken = tokens.get(CredmgrProxy.REFRESH_TOKEN)
+                    identitytoken = tokens.get(CredmgrProxy.ID_TOKEN)
+            else:
+                raise click.ClickException(f"Token file '{tokenlocation}' does not exist!")
+
+        if cmhost is None:
+            cmhost = os.environ.get(Constants.FABRIC_CREDMGR_HOST)
+
+        cm_proxy = CredmgrProxy(credmgr_host=cmhost)
+
+        status, error_str = cm_proxy.revoke(refresh_token=refreshtoken, identity_token=identitytoken,
+                                            token_type=TokenType.Refresh)
+        from fabric_cm.credmgr.credmgr_proxy import Status as CmStatus
+        if status == CmStatus.OK:
+            click.echo("Token revoked successfully")
+        else:
+            raise click.ClickException(f"Token could not be revoked! Error encountered: {error_str}")
+    except click.ClickException as e:
+        raise e
+    except Exception as e:
+        traceback.print_exc()
+        raise click.ClickException(str(e))
 
 
 @tokens.command()
 @click.option('--cmhost', help='Credmgr Host', default=None)
 @click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--refreshtoken', help='Refresh token to be revoked', default=None)
+@click.option('--identitytoken', help='Identity token to be revoked', default=None)
+@click.option('--tokenhash', help='SHA256 hash for the token being revoked; If not specified, '
+                                  'it is assumed that the identity token being passed is being revoked', default=None)
 @click.pass_context
-def revoke(ctx, cmhost, tokenlocation, refreshtoken):
+def revoke_identity_token(ctx, cmhost: str, tokenlocation: str, identitytoken: str, tokenhash: str):
     """ Revoke token
     """
-    slice_manager = __get_slice_manager(cm_host=cmhost, token_location=tokenlocation)
+    try:
+        fail = False
+        if cmhost is None and os.environ.get(Constants.FABRIC_CREDMGR_HOST) is None:
+            raise click.ClickException(f"Credential Manager Host must be specified!")
 
-    status, error_str = slice_manager.revoke_token(refresh_token=refreshtoken)
-    if status == Status.OK:
-        click.echo("Token revoked successfully")
-    else:
-        raise click.ClickException(f"Token could not be revoked! Error encountered: {error_str}")
+        if tokenlocation is None and os.environ.get(Constants.FABRIC_TOKEN_LOCATION) is None and \
+                identitytoken is None:
+            raise click.ClickException(f"Either Token location must be specified or pass identity token!")
+
+        if tokenlocation is not None or os.environ.get(Constants.FABRIC_TOKEN_LOCATION) is not None:
+            slice_manager = __get_slice_manager(cm_host=cmhost, token_location=tokenlocation)
+
+            status, error_str = slice_manager.revoke_token(token_type=TokenType.Identity)
+            if status != Status.OK:
+                fail = True
+        else:
+            if cmhost is None:
+                cmhost = os.environ.get(Constants.FABRIC_CREDMGR_HOST)
+
+            cm_proxy = CredmgrProxy(credmgr_host=cmhost)
+
+            status, error_str = cm_proxy.revoke(identity_token=identitytoken, token_hash=tokenhash,
+                                                token_type=TokenType.Identity)
+            from fabric_cm.credmgr.credmgr_proxy import Status as CmStatus
+            if status != CmStatus.OK:
+                fail = True
+
+        if not fail:
+            click.echo("Token revoked successfully")
+        else:
+            raise click.ClickException(f"Token could not be revoked! Error encountered: {error_str}")
+    except click.ClickException as e:
+        raise e
+    except Exception as e:
+        raise click.ClickException(str(e))
+
 
 @tokens.command()
 @click.option('--cmhost', help='Credmgr Host', default=None)
@@ -123,13 +285,25 @@ def revoke(ctx, cmhost, tokenlocation, refreshtoken):
 def clear_cache(ctx, cmhost, tokenlocation):
     """ Clear cached token
     """
-    slice_manager = __get_slice_manager(cm_host=cmhost, token_location=tokenlocation)
+    try:
+        if cmhost is None and os.environ.get(Constants.FABRIC_CREDMGR_HOST) is None:
+            raise click.ClickException(f"Credential Manager Host must be specified!")
 
-    status, error_str = slice_manager.clear_token_cache(file_name=tokenlocation)
-    if status == Status.OK:
-        click.echo("Token cache cleared successfully")
-    else:
-        raise click.ClickException(f"Token could not be revoked! Error encountered: {error_str}")
+        if tokenlocation is None:
+            raise click.ClickException(f"Token location must be specified !")
+
+        slice_manager = __get_slice_manager(cm_host=cmhost, token_location=tokenlocation)
+
+        status, error_str = slice_manager.clear_token_cache(file_name=tokenlocation)
+        if status == Status.OK:
+            click.echo("Token cache cleared successfully")
+        else:
+            raise click.ClickException(f"Token could not be revoked! Error encountered: {error_str}")
+
+    except click.ClickException as e:
+        raise e
+    except Exception as e:
+        raise click.ClickException(str(e))
 
 
 @click.group()

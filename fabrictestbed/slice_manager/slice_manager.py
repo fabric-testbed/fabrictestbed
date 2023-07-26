@@ -37,6 +37,7 @@ from fabric_cm.credmgr.credmgr_proxy import TokenType
 from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology, Node, GraphFormat
 from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, CmStatus, Status, SliceState
 from fabrictestbed.util.constants import Constants
+from fabrictestbed.util.utils import Utils
 
 
 class SliceManagerException(Exception):
@@ -48,7 +49,8 @@ class SliceManager:
     Implements User facing Control Framework API interface
     """
     def __init__(self, *, cm_host: str = None, oc_host: str = None, token_location: str = None,
-                 project_id: str = None, scope: str = "all", initialize: bool = True):
+                 project_id: str = None, scope: str = "all", initialize: bool = True,
+                 project_name: str = None):
         self.logger = logging.getLogger()
         if cm_host is None:
             cm_host = os.environ.get(Constants.FABRIC_CREDMGR_HOST)
@@ -61,15 +63,19 @@ class SliceManager:
         self.project_id = project_id
         if self.project_id is None:
             self.project_id = os.environ.get(Constants.FABRIC_PROJECT_ID)
+        self.project_name = project_name
+        if self.project_name is None:
+            self.project_name = os.environ.get(Constants.FABRIC_PROJECT_NAME)
         self.scope = scope
         if self.token_location is None:
             self.token_location = os.environ.get(Constants.FABRIC_TOKEN_LOCATION)
         self.initialized = False
         # Validate the required parameters are set
-        if self.cm_proxy is None or self.oc_proxy is None or self.token_location is None or self.project_id is None:
+        if self.cm_proxy is None or self.oc_proxy is None or self.token_location is None or \
+                (self.project_id is None and self.project_name is None):
             raise SliceManagerException(f"Invalid initialization parameters: cm_proxy={self.cm_proxy}, "
                                         f"oc_proxy={self.oc_proxy}, token_location={self.token_location}, "
-                                        f"project_id={self.project_id}")
+                                        f"project_id={self.project_id}, project_name={self.project_name}")
         if initialize:
             self.initialize()
 
@@ -153,6 +159,25 @@ class SliceManager:
         """
         self.token_location = token_location
 
+    def create_token(self, scope: str = "all", project_id: str = None, project_name: str = None, file_name: str = None,
+                     life_time_in_hours: int = 4, comment: str = "Created via API",
+                     browser_name: str = "chrome") -> Tuple[Status, Union[dict, Exception]]:
+        """
+        Create token
+        @param project_id: Project Id
+        @param project_name: Project Name
+        @param scope: scope
+        @param file_name: File name
+        @param life_time_in_hours: Token lifetime in hours
+        @param comment: comment associated with the token
+        @param browser_name: Browser name; allowed values: chrome, firefox, safari, edge
+        @returns Tuple of Status, token json or Exception
+        @raises Exception in case of failure
+        """
+        return self.cm_proxy.create(scope=scope, project_id=project_id, project_name=project_name,
+                                    file_name=file_name, life_time_in_hours=life_time_in_hours, comment=comment,
+                                    browser_name=browser_name)
+
     def refresh_tokens(self, *, refresh_token: str) -> Tuple[str, str]:
         """
         Refresh tokens
@@ -163,13 +188,14 @@ class SliceManager:
         updates the refresh tokens to the token file atomically.
         """
         status, tokens = self.cm_proxy.refresh(project_id=self.project_id, scope=self.scope,
-                                               refresh_token=refresh_token, file_name=self.token_location)
+                                               refresh_token=refresh_token, file_name=self.token_location,
+                                               project_name=self.project_name)
         if status == CmStatus.OK:
             self.tokens = tokens
             return tokens.get(CredmgrProxy.ID_TOKEN, None), tokens.get(CredmgrProxy.REFRESH_TOKEN, None)
         raise SliceManagerException(tokens.get(CredmgrProxy.ERROR))
 
-    def revoke_token(self, *, refresh_token: str = None, id_token: str = None,
+    def revoke_token(self, *, refresh_token: str = None, id_token: str = None, token_hash: str = None,
                      token_type: TokenType = TokenType.Refresh) -> Tuple[Status, Any]:
         """
         Revoke a refresh token
@@ -182,8 +208,12 @@ class SliceManager:
             refresh_token = self.get_refresh_token()
         if id_token is None:
             id_token = self.get_id_token()
+        if token_hash is None:
+            token_hash = Utils.generate_sha256(token=id_token)
 
-        return self.cm_proxy.revoke(refresh_token=refresh_token, identity_token=id_token, token_type=token_type)
+        print(f"KOMAL ---- {refresh_token}  {id_token}  {token_hash} {token_type}")
+        return self.cm_proxy.revoke(refresh_token=refresh_token, identity_token=id_token, token_hash=token_hash,
+                                    token_type=token_type)
 
     def token_revoke_list(self, *, project_id: str) -> Tuple[Status, Union[Exception, List[str]]]:
         """
