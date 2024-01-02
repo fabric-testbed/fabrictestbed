@@ -25,7 +25,7 @@
 # Author: Komal Thareja (kthare10@renci.org)
 import json
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Tuple, Union, List, Any, Dict
 
 import paramiko
@@ -100,7 +100,7 @@ class SliceManager:
         created_at = self.tokens.get(CredmgrProxy.CREATED_AT, None)
 
         created_at_time = datetime.strptime(created_at, CredmgrProxy.TIME_FORMAT)
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         if id_token is None or now - created_at_time >= timedelta(minutes=30):
             return True
