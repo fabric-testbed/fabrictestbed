@@ -24,6 +24,7 @@
 #
 # Author: Komal Thareja (kthare10@renci.org)
 import json
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Tuple, Union, List, Any, Dict
@@ -31,10 +32,12 @@ from typing import Tuple, Union, List, Any, Dict
 import paramiko
 from fabric_cf.orchestrator.swagger_client import Sliver, Slice
 from fabric_cf.orchestrator.swagger_client.models import PoaData
+from fabric_cm.credmgr.credmgr_proxy import TokenType
 
 from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology, Node, GraphFormat
 from fabrictestbed.slice_manager import CredmgrProxy, OrchestratorProxy, CmStatus, Status, SliceState
 from fabrictestbed.util.constants import Constants
+from fabrictestbed.util.utils import Utils
 
 
 class SliceManagerException(Exception):
@@ -46,7 +49,9 @@ class SliceManager:
     Implements User facing Control Framework API interface
     """
     def __init__(self, *, cm_host: str = None, oc_host: str = None, token_location: str = None,
-                 project_id: str = None, scope: str = "all", initialize: bool = True):
+                 project_id: str = None, scope: str = "all", initialize: bool = True,
+                 project_name: str = None):
+        self.logger = logging.getLogger()
         if cm_host is None:
             cm_host = os.environ.get(Constants.FABRIC_CREDMGR_HOST)
         if oc_host is None:
@@ -58,15 +63,19 @@ class SliceManager:
         self.project_id = project_id
         if self.project_id is None:
             self.project_id = os.environ.get(Constants.FABRIC_PROJECT_ID)
+        self.project_name = project_name
+        if self.project_name is None:
+            self.project_name = os.environ.get(Constants.FABRIC_PROJECT_NAME)
         self.scope = scope
         if self.token_location is None:
             self.token_location = os.environ.get(Constants.FABRIC_TOKEN_LOCATION)
         self.initialized = False
         # Validate the required parameters are set
-        if self.cm_proxy is None or self.oc_proxy is None or self.token_location is None or self.project_id is None:
+        if self.cm_proxy is None or self.oc_proxy is None or self.token_location is None or \
+                (self.project_id is None and self.project_name is None):
             raise SliceManagerException(f"Invalid initialization parameters: cm_proxy={self.cm_proxy}, "
                                         f"oc_proxy={self.oc_proxy}, token_location={self.token_location}, "
-                                        f"project_id={self.project_id}")
+                                        f"project_id={self.project_id}, project_name={self.project_name}")
         if initialize:
             self.initialize()
 
@@ -115,7 +124,6 @@ class SliceManager:
         from the token file are read instead of the local variables
         """
         # Load the tokens from the JSON
-        refresh_token = None
         if os.path.exists(self.token_location):
             with open(self.token_location, 'r') as stream:
                 self.tokens = json.loads(stream.read())
@@ -123,6 +131,10 @@ class SliceManager:
         else:
             # First time login, use environment variable to load the tokens
             refresh_token = os.environ.get(Constants.CILOGON_REFRESH_TOKEN)
+        if refresh_token is None:
+            raise SliceManagerException(f"Unable to refresh tokens: no refresh token found!")
+            #self.logger.warning("Unable to refresh tokens: no refresh token found!")
+            #return
         # Renew the tokens to ensure any project_id changes are taken into account
         self.refresh_tokens(refresh_token=refresh_token)
 
@@ -147,6 +159,25 @@ class SliceManager:
         """
         self.token_location = token_location
 
+    def create_token(self, scope: str = "all", project_id: str = None, project_name: str = None, file_name: str = None,
+                     life_time_in_hours: int = 4, comment: str = "Created via API",
+                     browser_name: str = "chrome") -> Tuple[Status, Union[dict, Exception]]:
+        """
+        Create token
+        @param project_id: Project Id
+        @param project_name: Project Name
+        @param scope: scope
+        @param file_name: File name
+        @param life_time_in_hours: Token lifetime in hours
+        @param comment: comment associated with the token
+        @param browser_name: Browser name; allowed values: chrome, firefox, safari, edge
+        @returns Tuple of Status, token json or Exception
+        @raises Exception in case of failure
+        """
+        return self.cm_proxy.create(scope=scope, project_id=project_id, project_name=project_name,
+                                    file_name=file_name, life_time_in_hours=life_time_in_hours, comment=comment,
+                                    browser_name=browser_name)
+
     def refresh_tokens(self, *, refresh_token: str) -> Tuple[str, str]:
         """
         Refresh tokens
@@ -157,25 +188,39 @@ class SliceManager:
         updates the refresh tokens to the token file atomically.
         """
         status, tokens = self.cm_proxy.refresh(project_id=self.project_id, scope=self.scope,
-                                               refresh_token=refresh_token, file_name=self.token_location)
+                                               refresh_token=refresh_token, file_name=self.token_location,
+                                               project_name=self.project_name)
         if status == CmStatus.OK:
             self.tokens = tokens
             return tokens.get(CredmgrProxy.ID_TOKEN, None), tokens.get(CredmgrProxy.REFRESH_TOKEN, None)
         raise SliceManagerException(tokens.get(CredmgrProxy.ERROR))
 
-    def revoke_token(self, *, refresh_token: str = None) -> Tuple[Status, Any]:
+    def revoke_token(self, *, refresh_token: str = None, id_token: str = None, token_hash: str = None,
+                     token_type: TokenType = TokenType.Refresh) -> Tuple[Status, Any]:
         """
         Revoke a refresh token
         @param refresh_token Refresh Token to be revoked
+        @param id_token Identity Token
+        @param token_type type of the token being revoked
         @return Tuple of the status and revoked refresh token
         """
-        token_to_be_revoked = refresh_token
-        if token_to_be_revoked is None:
-            token_to_be_revoked = self.get_refresh_token()
+        if refresh_token is None:
+            refresh_token = self.get_refresh_token()
+        if id_token is None:
+            id_token = self.get_id_token()
+        if token_hash is None:
+            token_hash = Utils.generate_sha256(token=id_token)
 
-        if token_to_be_revoked is not None:
-            return self.cm_proxy.revoke(refresh_token=token_to_be_revoked)
-        return Status.FAILURE, "Refresh Token cannot be None"
+        return self.cm_proxy.revoke(refresh_token=refresh_token, identity_token=id_token, token_hash=token_hash,
+                                    token_type=token_type)
+
+    def token_revoke_list(self, *, project_id: str) -> Tuple[Status, Union[Exception, List[str]]]:
+        """
+        Get Token Revoke list for a project
+        @param project_id project_id
+        @return token revoke list
+        """
+        return self.cm_proxy.token_revoke_list(project_id=project_id)
 
     def clear_token_cache(self, *, file_name: str = None):
         """
@@ -348,13 +393,14 @@ class SliceManager:
                                    new_lease_end_time=new_lease_end_time)
 
     def poa(self, *, sliver_id: str, operation: str, vcpu_cpu_map: List[Dict[str, str]] = None,
-            node_set: List[str] = None) ->Tuple[Status, Union[Exception, List[PoaData]]]:
+            node_set: List[str] = None, keys: List[Dict[str, str]] = None) ->Tuple[Status, Union[Exception, List[PoaData]]]:
         """
         Issue POA for a sliver
         @param sliver_id sliver Id for which to trigger POA
         @param operation operation
         @param vcpu_cpu_map list of mappings from virtual CPU to physical cpu
         @param node_set list of the numa nodes
+        @param keys list of keys to add/remove
         @return Tuple containing Status and POA information
        """
         if sliver_id is None or operation is None:
@@ -364,7 +410,7 @@ class SliceManager:
             self.__load_tokens()
 
         return self.oc_proxy.poa(token=self.get_id_token(), sliver_id=sliver_id, operation=operation,
-                                 vcpu_cpu_map=vcpu_cpu_map, node_set=node_set)
+                                 vcpu_cpu_map=vcpu_cpu_map, node_set=node_set, keys=keys)
 
     def get_poas(self, sliver_id: str = None, poa_id: str = None, limit: int = 20,
                  offset: int = 0, ) -> Tuple[Status, Union[Exception, List[PoaData]]]:

@@ -23,12 +23,39 @@
 #
 #
 # Author: Komal Thareja (kthare10@renci.org)
+#
+import hashlib
+import json
 
-class Constants:
-    CILOGON_REFRESH_TOKEN = "CILOGON_REFRESH_TOKEN"
-    FABRIC_TOKEN_LOCATION = "FABRIC_TOKEN_LOCATION"
-    FABRIC_CREDMGR_HOST = "FABRIC_CREDMGR_HOST"
-    FABRIC_ORCHESTRATOR_HOST = "FABRIC_ORCHESTRATOR_HOST"
-    FABRIC_PROJECT_ID = "FABRIC_PROJECT_ID"
-    FABRIC_PROJECT_NAME = "FABRIC_PROJECT_NAME"
-    FABRIC_COOKIE_NAME = "FABRIC_COOKIE_NAME"
+
+class Utils:
+    @staticmethod
+    def generate_sha256(*, token: str):
+        """
+        Generate SHA 256 for a token
+        @param token token string
+        """
+        # Create a new SHA256 hash object
+        sha256_hash = hashlib.sha256()
+
+        # Convert the string to bytes and update the hash object
+        sha256_hash.update(token.encode('utf-8'))
+
+        # Get the hexadecimal representation of the hash
+        sha256_hex = sha256_hash.hexdigest()
+
+        return sha256_hex
+
+    @staticmethod
+    def extract_error_message(*, exception):
+        body = exception
+        if hasattr(exception, "body"):
+            body = exception.body
+        try:
+            response_body = json.loads(body)
+            errors = response_body.get("errors")
+            if errors and len(errors) > 0:
+                return f"{errors[0].get('message')} - {errors[0].get('details')}"
+        except Exception:
+            return str(exception)
+        return str(exception)
