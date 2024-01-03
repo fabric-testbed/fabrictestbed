@@ -25,6 +25,7 @@
 # Author: Komal Thareja (kthare10@renci.org)
 #
 import hashlib
+import json
 
 
 class Utils:
@@ -44,3 +45,17 @@ class Utils:
         sha256_hex = sha256_hash.hexdigest()
 
         return sha256_hex
+
+    @staticmethod
+    def extract_error_message(*, exception):
+        body = exception
+        if hasattr(exception, "body"):
+            body = exception.body
+        try:
+            response_body = json.loads(body)
+            errors = response_body.get("errors")
+            if errors and len(errors) > 0:
+                return f"{errors[0].get('message')} - {errors[0].get('details')}"
+        except Exception:
+            return str(exception)
+        return str(exception)

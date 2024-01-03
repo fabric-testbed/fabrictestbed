@@ -32,6 +32,7 @@ import json
 import click
 from fabric_cf.orchestrator.orchestrator_proxy import SliceState
 from fabric_cm.credmgr.credmgr_proxy import TokenType
+from fabrictestbed.util.utils import Utils
 from fim.slivers.network_node import NodeSliver
 
 from .exceptions import TokenExpiredException
@@ -100,10 +101,10 @@ def tokens(ctx):
               help='Browser to use to launch the web app!')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='scope')
-@click.option('--filename', help='Location and name of the while in which to store tokens', default=None)
+@click.option('--tokenlocation', help='Location and name of the while in which to store tokens', default=None)
 @click.pass_context
 def create(ctx, cmhost: str, projectid: str, projectname: str, lifetime: int, comment: str,
-           browser: str, scope: str, filename: str):
+           browser: str, scope: str, tokenlocation: str):
     """Create token
     """
     try:
@@ -123,18 +124,21 @@ def create(ctx, cmhost: str, projectid: str, projectname: str, lifetime: int, co
         else:
             cm_proxy = CredmgrProxy(credmgr_host=cmhost)
 
+        if tokenlocation is None:
+            tokenlocation = os.getenv(Constants.FABRIC_TOKEN_LOCATION)
+
         status, token_or_exception = cm_proxy.create(project_id=projectid, project_name=projectname,
                                                      life_time_in_hours=lifetime, comment=comment,
-                                                     browser_name=browser, scope=scope, file_name=filename)
+                                                     browser_name=browser, scope=scope, file_name=tokenlocation)
 
         from fabric_cm.credmgr.credmgr_proxy import Status as CmStatus
         if status == CmStatus.OK:
-            if filename is None:
+            if tokenlocation is None:
                 click.echo(f"Fabric Token: {token_or_exception}")
             else:
-                click.echo(f"Fabric Token saved at: {filename}")
+                click.echo(f"Fabric Token saved at: {tokenlocation}")
         else:
-            raise click.ClickException(f"Token could not be created! Error encountered: {token_or_exception}")
+            raise click.ClickException(f"{Utils.extract_error_message(exception=token_or_exception)}")
     except click.ClickException as e:
         raise e
     except Exception as e:
@@ -183,10 +187,13 @@ def refresh(ctx, cmhost: str, tokenlocation: str, projectid: str, projectname: s
 @click.option('--tokenlocation', help='Location of the file which contains the valid tokens', default=None)
 @click.option('--refreshtoken', help='Refresh token to be revoked; '
                                      'If specified refresh token from tokenlocation is ignored!', default=None)
-@click.option('--identitytoken', help='Identity token to authenticate the user; '
-                                      'If specified identity token from tokenlocation is ignored', default=None)
+@click.option('--identitytoken', help='Identity token to be revoked or to authenticate the user when revoking a '
+                                      'refresh token; If specified identity token from tokenlocation is ignored',
+              default=None)
+@click.option('--tokenhash', help='SHA256 hash for the token being revoked; If not specified, '
+                                  'it is assumed that the identity token being passed is being revoked', default=None)
 @click.pass_context
-def revoke(ctx, cmhost: str, tokenlocation: str, refreshtoken: str, identitytoken: str):
+def revoke(ctx, cmhost: str, tokenlocation: str, refreshtoken: str, identitytoken: str, tokenhash: str):
     """ Revoke token
     """
     try:
@@ -209,6 +216,7 @@ def revoke(ctx, cmhost: str, tokenlocation: str, refreshtoken: str, identitytoke
                     tokens = json.loads(stream.read())
                     refreshtoken = tokens.get(CredmgrProxy.REFRESH_TOKEN)
                     identitytoken = tokens.get(CredmgrProxy.ID_TOKEN)
+                    tokenhash = tokens.get("token_hash")
             else:
                 raise click.ClickException(f"Token file '{tokenlocation}' does not exist!")
 
@@ -216,65 +224,22 @@ def revoke(ctx, cmhost: str, tokenlocation: str, refreshtoken: str, identitytoke
             cmhost = os.environ.get(Constants.FABRIC_CREDMGR_HOST)
 
         cm_proxy = CredmgrProxy(credmgr_host=cmhost)
+        if refreshtoken is None:
+            status, error_str = cm_proxy.revoke(identity_token=identitytoken, token_hash=tokenhash,
+                                                token_type=TokenType.Identity)
+        else:
 
-        status, error_str = cm_proxy.revoke(refresh_token=refreshtoken, identity_token=identitytoken,
-                                            token_type=TokenType.Refresh)
+            status, error_str = cm_proxy.revoke(refresh_token=refreshtoken, identity_token=identitytoken,
+                                                token_type=TokenType.Refresh)
         from fabric_cm.credmgr.credmgr_proxy import Status as CmStatus
         if status == CmStatus.OK:
             click.echo("Token revoked successfully")
         else:
-            raise click.ClickException(f"Token could not be revoked! Error encountered: {error_str}")
+            raise click.ClickException(f"{Utils.extract_error_message(exception=error_str)}")
     except click.ClickException as e:
         raise e
     except Exception as e:
         traceback.print_exc()
-        raise click.ClickException(str(e))
-
-
-@tokens.command()
-@click.option('--cmhost', help='Credmgr Host', default=None)
-@click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--identitytoken', help='Identity token to be revoked', default=None)
-@click.option('--tokenhash', help='SHA256 hash for the token being revoked; If not specified, '
-                                  'it is assumed that the identity token being passed is being revoked', default=None)
-@click.pass_context
-def revoke_identity_token(ctx, cmhost: str, tokenlocation: str, identitytoken: str, tokenhash: str):
-    """ Revoke token
-    """
-    try:
-        fail = False
-        if cmhost is None and os.environ.get(Constants.FABRIC_CREDMGR_HOST) is None:
-            raise click.ClickException(f"Credential Manager Host must be specified!")
-
-        if tokenlocation is None and os.environ.get(Constants.FABRIC_TOKEN_LOCATION) is None and \
-                identitytoken is None:
-            raise click.ClickException(f"Either Token location must be specified or pass identity token!")
-
-        if tokenlocation is not None or os.environ.get(Constants.FABRIC_TOKEN_LOCATION) is not None:
-            slice_manager = __get_slice_manager(cm_host=cmhost, token_location=tokenlocation)
-
-            status, error_str = slice_manager.revoke_token(token_type=TokenType.Identity)
-            if status != Status.OK:
-                fail = True
-        else:
-            if cmhost is None:
-                cmhost = os.environ.get(Constants.FABRIC_CREDMGR_HOST)
-
-            cm_proxy = CredmgrProxy(credmgr_host=cmhost)
-
-            status, error_str = cm_proxy.revoke(identity_token=identitytoken, token_hash=tokenhash,
-                                                token_type=TokenType.Identity)
-            from fabric_cm.credmgr.credmgr_proxy import Status as CmStatus
-            if status != CmStatus.OK:
-                fail = True
-
-        if not fail:
-            click.echo("Token revoked successfully")
-        else:
-            raise click.ClickException(f"Token could not be revoked! Error encountered: {error_str}")
-    except click.ClickException as e:
-        raise e
-    except Exception as e:
         raise click.ClickException(str(e))
 
 
@@ -298,7 +263,7 @@ def clear_cache(ctx, cmhost, tokenlocation):
         if status == Status.OK:
             click.echo("Token cache cleared successfully")
         else:
-            raise click.ClickException(f"Token could not be revoked! Error encountered: {error_str}")
+            raise click.ClickException(f"{Utils.extract_error_message(exception=error_str)}")
 
     except click.ClickException as e:
         raise e
@@ -344,11 +309,10 @@ def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sco
         if status == Status.OK and not isinstance(response, Exception):
             click.echo(json.dumps(list(map(lambda i: i.to_dict(), response)),indent=2))
         else:
-            click.echo(f'Query Slice(s) failed: {status.interpret(exception=response)}')
+            click.echo(Utils.extract_error_message(exception=response))
 
-    except TokenExpiredException as e:
-        raise click.ClickException(str(e) +
-                                   ', use \'fabric-cli token refresh\' to refresh token first')
+    except TokenExpiredException:
+        raise click.ClickException("Unauthorized: Valid token required")
     except Exception as e:
         raise click.ClickException(str(e))
 
@@ -378,11 +342,10 @@ def create(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sc
         if status == Status.OK:
             click.echo(response)
         else:
-            click.echo(f'Create Slice failed: {status.interpret(exception=response)}')
+            click.echo(Utils.extract_error_message(exception=response))
 
-    except TokenExpiredException as e:
-        raise click.ClickException(str(e) +
-                                   ', use \'fabric-cli token refresh\' to refresh token first')
+    except TokenExpiredException:
+        raise click.ClickException("Unauthorized: Valid token required")
     except Exception as e:
         raise click.ClickException(str(e))
 
@@ -409,11 +372,10 @@ def modify(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sc
         if status == Status.OK:
             click.echo(response)
         else:
-            click.echo(f'Modify Slice failed: {status.interpret(exception=response)}')
+            click.echo(Utils.extract_error_message(exception=response))
 
-    except TokenExpiredException as e:
-        raise click.ClickException(str(e) +
-                                   ', use \'fabric-cli token refresh\' to refresh token first')
+    except TokenExpiredException:
+        raise click.ClickException("Unauthorized: Valid token required")
     except Exception as e:
         raise click.ClickException(str(e))
 
@@ -438,11 +400,10 @@ def modifyaccept(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: s
         if status == Status.OK:
             click.echo(response)
         else:
-            click.echo(f'Modify Slice failed: {status.interpret(exception=response)}')
+            click.echo(Utils.extract_error_message(exception=response))
 
-    except TokenExpiredException as e:
-        raise click.ClickException(str(e) +
-                                   ', use \'fabric-cli token refresh\' to refresh token first')
+    except TokenExpiredException:
+        raise click.ClickException("Unauthorized: Valid token required")
     except Exception as e:
         raise click.ClickException(str(e))
 
@@ -475,11 +436,10 @@ def delete(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sc
         if status == Status.OK:
             click.echo(response)
         else:
-            click.echo(f'Delete Slice failed: {status.interpret(exception=response)}')
+            click.echo(Utils.extract_error_message(exception=response))
 
-    except TokenExpiredException as e:
-        raise click.ClickException(str(e) +
-                                   ', use \'fabric-cli token refresh\' to refresh token first')
+    except TokenExpiredException:
+        raise click.ClickException("Unauthorized: Valid token required")
     except Exception as e:
         raise click.ClickException(str(e))
 
@@ -521,11 +481,10 @@ def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sco
         if status == Status.OK and not isinstance(response, Exception):
             click.echo(json.dumps(list(map(lambda i: __unpack(i.to_dict()), response)),indent=2))
         else:
-            click.echo(f'Query Sliver(s) failed: {status.interpret(exception=response)}')
+            click.echo(Utils.extract_error_message(exception=response))
 
-    except TokenExpiredException as e:
-        raise click.ClickException(str(e) +
-                                   ', use \'fabric-cli token refresh\' to refresh token first')
+    except TokenExpiredException:
+        raise click.ClickException("Unauthorized: Valid token required")
     except Exception as e:
         raise click.ClickException(str(e))
 
@@ -552,7 +511,7 @@ def execute(ctx, sshkeyfile: str, sliceaddress: str, username: str, command: str
             click.echo(f"Output: {output}")
             click.echo(f"Error: {error}")
         else:
-            click.echo(f'Query Sliver(s) failed: {status.interpret(exception=response)}')
+            click.echo(Utils.extract_error_message(exception=response))
     except Exception as e:
         raise click.ClickException(str(e))
 
@@ -586,11 +545,10 @@ def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sco
         if status == Status.OK:
             click.echo(response)
         else:
-            click.echo(f'Query Resources failed: {status.interpret(exception=response)}')
+            click.echo(Utils.extract_error_message(exception=response))
 
-    except TokenExpiredException as e:
-        raise click.ClickException(str(e) +
-                                   ', use \'fabric-cli token refresh\' to refresh token first')
+    except TokenExpiredException:
+        raise click.ClickException("Unauthorized: Valid token required")
     except Exception as e:
         raise click.ClickException(str(e))
 

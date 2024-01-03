@@ -211,7 +211,6 @@ class SliceManager:
         if token_hash is None:
             token_hash = Utils.generate_sha256(token=id_token)
 
-        print(f"KOMAL ---- {refresh_token}  {id_token}  {token_hash} {token_type}")
         return self.cm_proxy.revoke(refresh_token=refresh_token, identity_token=id_token, token_hash=token_hash,
                                     token_type=token_type)
 
