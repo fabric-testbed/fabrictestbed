@@ -26,6 +26,10 @@
 #
 import hashlib
 import json
+from datetime import datetime, timedelta
+
+from fss_utils.jwt_manager import ValidateCode
+from fss_utils.jwt_validate import JWTValidator
 
 
 class Utils:
@@ -59,3 +63,13 @@ class Utils:
         except Exception:
             return str(exception)
         return str(exception)
+
+    @staticmethod
+    def decode_token(*, cm_host: str, token: str) -> dict:
+        t = datetime.strptime("00:10:00", "%H:%M:%S")
+        jwt_validator = JWTValidator(url=f"https://{cm_host}/credmgr/certs",
+                                     refresh_period=timedelta(hours=t.hour, minutes=t.minute, seconds=t.second))
+        code, token_or_exception = jwt_validator.validate_jwt(token=token, verify_exp=True)
+        if code is not ValidateCode.VALID:
+            raise Exception(f"Unable to validate provided token: {code}/{token_or_exception}")
+        return token_or_exception

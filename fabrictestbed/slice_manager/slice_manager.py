@@ -33,6 +33,7 @@ import paramiko
 from fabric_cf.orchestrator.swagger_client import Sliver, Slice
 from fabric_cf.orchestrator.swagger_client.models import PoaData
 from fabric_cm.credmgr.credmgr_proxy import TokenType
+from fabric_cm.credmgr.swagger_client.models import DecodedToken
 
 from fabrictestbed.external_api.core_api import CoreApi
 from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology, Node, GraphFormat
@@ -75,15 +76,31 @@ class SliceManager:
         if self.token_location is None:
             self.token_location = os.environ.get(Constants.FABRIC_TOKEN_LOCATION)
         self.initialized = False
+
+        if cm_host is None or oc_host is None or core_api_host is None or token_location is None:
+            raise SliceManagerException(f"Invalid initialization parameters: cm_host: {cm_host}, "
+                                        f"oc_host: {oc_host} core_api_host: {cm_host} token_location: {token_location}")
+
+        # Try to load the project_id or project_name from the Token
+        if project_id is None and project_name is None:
+            self.__determine_project(cm_host=cm_host)
+
         # Validate the required parameters are set
-        if self.cm_proxy is None or self.oc_proxy is None or self.core_api_host is None or \
-                self.token_location is None or (self.project_id is None and self.project_name is None):
-            raise SliceManagerException(f"Invalid initialization parameters: cm_proxy={self.cm_proxy}, "
-                                        f"oc_proxy={self.oc_proxy}, core_api_host: {self.core_api_host} "
-                                        f"token_location={self.token_location}, "
-                                        f"project_id={self.project_id}, project_name={self.project_name}")
+        if self.project_id is None and self.project_name is None:
+            raise SliceManagerException(f"Invalid initialization parameters: project_id={self.project_id}, "
+                                        f"project_name={self.project_name}")
+
         if initialize:
             self.initialize()
+
+    def __determine_project(self, cm_host: str):
+        self.__load_tokens(refresh=False)
+        if self.get_id_token() is not None:
+            logging.info("Project Id/Name not specified, trying to determine it from the token")
+            decoded_token = Utils.decode_token(cm_host=cm_host, token=self.get_id_token())
+            if decoded_token.get("projects") and len(decoded_token.get("projects")):
+                self.project_id = decoded_token.get("projects")[0].get("uuid")
+                self.project_name = decoded_token.get("projects")[0].get("name")
 
     def initialize(self):
         """
@@ -117,12 +134,12 @@ class SliceManager:
         created_at_time = datetime.strptime(created_at, CredmgrProxy.TIME_FORMAT)
         now = datetime.now(timezone.utc)
 
-        if id_token is None or now - created_at_time >= timedelta(minutes=30):
+        if id_token is None or now - created_at_time >= timedelta(minutes=180):
             return True
 
         return False
 
-    def __load_tokens(self):
+    def __load_tokens(self, refresh: bool = True):
         """
         Load Fabric Tokens from the tokens.json if it exists
         Otherwise, this is the first attempt, create the tokens and save them
@@ -140,7 +157,8 @@ class SliceManager:
         if refresh_token is None:
             raise SliceManagerException(f"Unable to refresh tokens: no refresh token found!")
         # Renew the tokens to ensure any project_id changes are taken into account
-        self.refresh_tokens(refresh_token=refresh_token)
+        if refresh:
+            self.refresh_tokens(refresh_token=refresh_token)
 
     def get_refresh_token(self) -> str:
         """
@@ -570,19 +588,35 @@ class SliceManager:
             error_message = Utils.extract_error_message(exception=e)
             raise SliceManagerException(error_message)
 
-    def get_user_and_project_info(self, project_name: str = "all", project_id: str = "all") -> Tuple[dict, list]:
+    def get_user_info(self, uuid: str = None) -> dict:
         """
-        Get User's info and projects either identified by project name, project id or all
-        @param project_id: Project Id
-        @param project_name Project name
+        Return User's uuid by querying via Core API
 
-        @return a tuple containing user_info, list of projects
+        @return User's information
         """
         try:
             if self.__should_renew():
                 self.__load_tokens()
             core_api_proxy = CoreApi(core_api_host=self.core_api_host, token=self.get_id_token())
-            return core_api_proxy.get_user_and_project_info(project_name=project_name, project_id=project_id)
+            return core_api_proxy.get_user_info(uuid=uuid)
+        except Exception as e:
+            error_message = Utils.extract_error_message(exception=e)
+            raise SliceManagerException(error_message)
+
+    def get_project_info(self, project_name: str = "all", project_id: str = "all", uuid: str = None) -> list:
+        """
+        Get User's projects either identified by project name, project id or all
+        @param project_id: Project Id
+        @param project_name Project name
+        @param uuid User Id
+
+        @return list of projects
+        """
+        try:
+            if self.__should_renew():
+                self.__load_tokens()
+            core_api_proxy = CoreApi(core_api_host=self.core_api_host, token=self.get_id_token())
+            return core_api_proxy.get_user_projects(project_name=project_name, project_id=project_id, uuid=uuid)
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
             raise SliceManagerException(error_message)
