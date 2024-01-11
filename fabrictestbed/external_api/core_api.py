@@ -42,7 +42,10 @@ class CoreApi:
     Class implements functionality to interface with Core API
     """
     def __init__(self, core_api_host: str, token: str):
-        self.api_server = core_api_host
+        if "https" not in core_api_host:
+            self.api_server = f"https://{core_api_host}"
+        else:
+            self.api_server = core_api_host
 
         # Set the headers
         headers = {
