@@ -63,7 +63,7 @@ class CoreApi:
         
         @return User's uuid
         """
-        url = f'https://{self.api_server}/whoami'
+        url = f'{self.api_server}/whoami'
         response = self.session.get(url)
         if response.status_code != 200:
             raise CoreApiError(f"Core API error occurred status_code: {response.status_code} "

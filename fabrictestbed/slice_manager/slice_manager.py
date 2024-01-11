@@ -535,7 +535,7 @@ class SliceManager:
             if client is not None:
                 client.close()
 
-    def get_ssh_keys(self) -> Tuple[Status, Union[SliceManagerException, list]]:
+    def get_ssh_keys(self) -> list:
         """
         Return SSH Keys
         :return list of ssh keys
@@ -544,14 +544,13 @@ class SliceManager:
             if self.__should_renew():
                 self.__load_tokens()
             core_api_proxy = CoreApi(core_api_host=self.core_api_host, token=self.get_id_token())
-            ssh_keys = core_api_proxy.get_ssh_keys()
-            return Status.OK, ssh_keys
+            return core_api_proxy.get_ssh_keys()
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
-            return Status.FAILURE, SliceManagerException(error_message)
+            raise SliceManagerException(error_message)
 
     def create_ssh_keys(self, key_type: str, description: str, comment: str = "Created via API",
-                        store_pubkey: bool = True) -> Tuple[Status, Union[SliceManagerException, list]]:
+                        store_pubkey: bool = True) -> list:
         """
         Create SSH Keys for a user
         :param description: Key Description
@@ -565,30 +564,25 @@ class SliceManager:
             if self.__should_renew():
                 self.__load_tokens()
             core_api_proxy = CoreApi(core_api_host=self.core_api_host, token=self.get_id_token())
-            ssh_keys = core_api_proxy.create_ssh_keys(key_type=key_type, comment=comment, store_pubkey=store_pubkey,
+            return core_api_proxy.create_ssh_keys(key_type=key_type, comment=comment, store_pubkey=store_pubkey,
                                                       description=description)
-            return Status.OK, ssh_keys
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
-            return Status.FAILURE, SliceManagerException(error_message)
+            raise SliceManagerException(error_message)
 
-    def get_user_and_project_info(self, project_name: str = "all",
-                                  project_id: str = "all") -> Union[Tuple[Status, dict, list],
-                                                                    Tuple[Status, SliceManagerException]]:
+    def get_user_and_project_info(self, project_name: str = "all", project_id: str = "all") -> Tuple[dict, list]:
         """
         Get User's info and projects either identified by project name, project id or all
         @param project_id: Project Id
         @param project_name Project name
 
-        @return a tuple containing email, uuid, list of projects
+        @return a tuple containing user_info, list of projects
         """
         try:
             if self.__should_renew():
                 self.__load_tokens()
             core_api_proxy = CoreApi(core_api_host=self.core_api_host, token=self.get_id_token())
-            user_info, projects = core_api_proxy.get_user_and_project_info(project_name=project_name,
-                                                                           project_id=project_id)
-            return Status.OK, user_info, projects
+            return core_api_proxy.get_user_and_project_info(project_name=project_name, project_id=project_id)
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
-            return Status.FAILURE, SliceManagerException(error_message)
+            raise SliceManagerException(error_message)
