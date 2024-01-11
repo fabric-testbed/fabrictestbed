@@ -565,7 +565,7 @@ class SliceManager:
                 self.__load_tokens()
             core_api_proxy = CoreApi(core_api_host=self.core_api_host, token=self.get_id_token())
             return core_api_proxy.create_ssh_keys(key_type=key_type, comment=comment, store_pubkey=store_pubkey,
-                                                      description=description)
+                                                  description=description)
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
             raise SliceManagerException(error_message)

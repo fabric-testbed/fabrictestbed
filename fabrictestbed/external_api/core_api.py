@@ -258,7 +258,7 @@ class CoreApi:
             Constants.STORE_PUBKEY: store_pubkey
         }
         url = f'{self.api_server}/sshkeys?person_uuid={uuid}'
-        response = self.session.post(url, data=ssh_data)
+        response = self.session.post(url, json=ssh_data)
         if response.status_code != 200:
             raise CoreApiError(f"Core API error occurred status_code: {response.status_code} "
                                f"message: {response.content}")
