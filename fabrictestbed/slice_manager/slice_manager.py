@@ -62,7 +62,7 @@ class SliceManager:
             core_api_host = os.environ.get(Constants.FABRIC_CORE_API_HOST)
         self.cm_proxy = CredmgrProxy(credmgr_host=cm_host)
         self.oc_proxy = OrchestratorProxy(orchestrator_host=oc_host)
-        self.core_api_proxy = CoreApi(core_api_host=core_api_host)
+        self.core_api_host = core_api_host
         self.token_location = token_location
         self.tokens = {}
         self.project_id = project_id
@@ -76,10 +76,11 @@ class SliceManager:
             self.token_location = os.environ.get(Constants.FABRIC_TOKEN_LOCATION)
         self.initialized = False
         # Validate the required parameters are set
-        if self.cm_proxy is None or self.oc_proxy is None or self.core_api_proxy is None or \
+        if self.cm_proxy is None or self.oc_proxy is None or self.core_api_host is None or \
                 self.token_location is None or (self.project_id is None and self.project_name is None):
             raise SliceManagerException(f"Invalid initialization parameters: cm_proxy={self.cm_proxy}, "
-                                        f"oc_proxy={self.oc_proxy}, token_location={self.token_location}, "
+                                        f"oc_proxy={self.oc_proxy}, core_api_host: {self.core_api_host} "
+                                        f"token_location={self.token_location}, "
                                         f"project_id={self.project_id}, project_name={self.project_name}")
         if initialize:
             self.initialize()
@@ -542,7 +543,8 @@ class SliceManager:
         try:
             if self.__should_renew():
                 self.__load_tokens()
-            ssh_keys = self.core_api_proxy.get_ssh_keys(token=self.get_id_token())
+            core_api_proxy = CoreApi(core_api_host=self.core_api_host, token=self.get_id_token())
+            ssh_keys = core_api_proxy.get_ssh_keys()
             return Status.OK, ssh_keys
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
@@ -562,9 +564,9 @@ class SliceManager:
         try:
             if self.__should_renew():
                 self.__load_tokens()
-            ssh_keys = self.core_api_proxy.create_ssh_keys(token=self.get_id_token(), key_type=key_type,
-                                                           comment=comment, store_pubkey=store_pubkey,
-                                                           description=description)
+            core_api_proxy = CoreApi(core_api_host=self.core_api_host, token=self.get_id_token())
+            ssh_keys = core_api_proxy.create_ssh_keys(key_type=key_type, comment=comment, store_pubkey=store_pubkey,
+                                                      description=description)
             return Status.OK, ssh_keys
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
@@ -583,9 +585,9 @@ class SliceManager:
         try:
             if self.__should_renew():
                 self.__load_tokens()
-            user_info, projects = self.core_api_proxy.get_user_and_project_info(token=self.get_id_token(),
-                                                                                project_name=project_name,
-                                                                                project_id=project_id)
+            core_api_proxy = CoreApi(core_api_host=self.core_api_host, token=self.get_id_token())
+            user_info, projects = core_api_proxy.get_user_and_project_info(project_name=project_name,
+                                                                           project_id=project_id)
             return Status.OK, user_info, projects
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)

@@ -41,11 +41,9 @@ class CoreApi:
     """
     Class implements functionality to interface with Core API
     """
-    def __init__(self, core_api_host: str):
+    def __init__(self, core_api_host: str, token: str):
         self.api_server = core_api_host
 
-    @staticmethod
-    def __get_session(token: str):
         # Set the headers
         headers = {
             'Accept': 'application/json',
@@ -53,18 +51,17 @@ class CoreApi:
             'authorization': f"Bearer {token}"
         }
         # Create Session
-        session = requests.Session()
-        session.headers.update(headers)
-        return session
+        self.session = requests.Session()
+        self.session.headers.update(headers)
 
-    def get_user_id(self, token: str) -> str:
+    def get_user_id(self) -> str:
         """
         Return User's uuid by querying via /whoami Core API
-        @param token token
+        
         @return User's uuid
         """
         url = f'https://{self.api_server}/whoami'
-        response = self.__get_session(token=token).get(url)
+        response = self.session.get(url)
         if response.status_code != 200:
             raise CoreApiError(f"Core API error occurred status_code: {response.status_code} "
                                f"message: {response.content}")
@@ -73,16 +70,16 @@ class CoreApi:
 
         return response.json().get("results")[0].get("uuid")
 
-    def get_user_info(self, token: str) -> dict:
+    def get_user_info(self) -> dict:
         """
         Return User's uuid by querying via /whoami Core API
-        @param token token
+        
         @return User's uuid and email
         """
-        uuid = self.get_user_id(token=token)
+        uuid = self.get_user_id()
 
         url = f'{self.api_server}/people/{uuid}?as_self=true'
-        response = self.__get_session(token=token).get(url)
+        response = self.session.get(url)
         if response.status_code != 200:
             raise CoreApiError(f"Core API error occurred status_code: {response.status_code} "
                                f"message: {response.content}")
@@ -91,15 +88,15 @@ class CoreApi:
 
         return response.json().get("results")[0]
 
-    def __get_user_project_by_id(self, *, token: str, project_id: str) -> list:
+    def __get_user_project_by_id(self, *, project_id: str) -> list:
         """
         Return user's project identified by project id
-        @param token token
+        
         @param project_id project id
         @return list of the projects
         """
         url = f"{self.api_server}/projects/{project_id}"
-        response = self.__get_session(token=token).get(url)
+        response = self.session.get(url)
 
         if response.status_code != 200:
             raise CoreApiError(f"Core API error occurred status_code: {response.status_code} "
@@ -109,16 +106,16 @@ class CoreApi:
 
         return response.json().get("results")
 
-    def __get_user_projects(self, *, token: str, project_name: str = None) -> list:
+    def __get_user_projects(self, *, project_name: str = None) -> list:
         """
         Return user's project identified by project name
-        @param token token
+        
         @param project_name project name
         @return list of the projects
         """
         offset = 0
         limit = 50
-        uuid = self.get_user_id(token=token)
+        uuid = self.get_user_id()
         result = []
         total_fetched = 0
 
@@ -130,7 +127,7 @@ class CoreApi:
                 url = f"{self.api_server}/projects?offset={offset}&limit={limit}&person_uuid={uuid}" \
                       f"&sort_by=name&order_by=asc"
 
-            response = self.__get_session(token=token).get(url)
+            response = self.session.get(url)
 
             if response.status_code != 200:
                 raise CoreApiError(f"Core API error occurred status_code: {response.status_code} "
@@ -154,34 +151,33 @@ class CoreApi:
 
         return result
 
-    def get_user_projects(self, token: str, project_name: str = "all", project_id: str = "all") -> List[dict]:
+    def get_user_projects(self, project_name: str = "all", project_id: str = "all") -> List[dict]:
         """
         Get User's projects either identified by project name, project id or all
         @param project_name Project name
         @param project_id Project Id
-        @param token Token
         @return list of projects
         """
         if project_id is not None and project_id != "all":
-            return self.__get_user_project_by_id(token=token, project_id=project_id)
+            return self.__get_user_project_by_id(project_id=project_id)
         elif project_name is not None and project_name != "all":
-            return self.__get_user_projects(token=token, project_name=project_name)
+            return self.__get_user_projects(project_name=project_name)
         else:
-            return self.__get_user_projects(token=token)
+            return self.__get_user_projects()
 
-    def get_user_and_project_info(self, token: str, project_name: str = "all",
+    def get_user_and_project_info(self, project_name: str = "all",
                                   project_id: str = "all") -> Tuple[dict, list]:
         """
         Get User's info and projects either identified by project name, project id or all
-        @param token: Token
+
         @param project_id: Project Id
         @param project_name Project name
 
         @return a tuple containing email, uuid, list of projects
         """
-        user_info = self.get_user_info(token=token)
+        user_info = self.get_user_info()
 
-        projects_res = self.get_user_projects(token=token, project_id=project_id, project_name=project_name)
+        projects_res = self.get_user_projects(project_id=project_id, project_name=project_name)
 
         projects = []
         for p in projects_res:
@@ -222,17 +218,16 @@ class CoreApi:
 
         return user_info, projects
 
-    def get_ssh_keys(self, token: str) -> list:
+    def get_ssh_keys(self) -> list:
         """
         Return SSH Keys, given user's uuid
-        @param token: token
 
         @return list of ssh keys
         """
-        uuid = self.get_user_id(token=token)
+        uuid = self.get_user_id()
 
         url = f'{self.api_server}/sshkeys?person_uuid={uuid}'
-        response = self.__get_session(token=token).get(url)
+        response = self.session.get(url)
         if response.status_code != 200:
             raise CoreApiError(f"Core API error occurred status_code: {response.status_code} "
                                f"message: {response.content}")
@@ -240,11 +235,10 @@ class CoreApi:
         logging.debug(f"GET SSH Keys Response : {response.json()}")
         return response.json().get("results")
 
-    def create_ssh_keys(self, token: str, key_type: str, description: str,
+    def create_ssh_keys(self, key_type: str, description: str,
                         comment: str = "Created via API", store_pubkey: bool = True) -> list:
         """
         Create SSH Keys for a user
-        @param token: token
         @param description: Key Description
         @param comment: Comment
         @param store_pubkey: Flag indicating if public key should be saved
@@ -252,7 +246,7 @@ class CoreApi:
 
         @return list of ssh keys
         """
-        uuid = self.get_user_id(token=token)
+        uuid = self.get_user_id()
 
         ssh_data = {
             Constants.DESCRIPTION: description,
@@ -261,7 +255,7 @@ class CoreApi:
             Constants.STORE_PUBKEY: store_pubkey
         }
         url = f'{self.api_server}/sshkeys?person_uuid={uuid}'
-        response = self.__get_session(token=token).post(url, data=ssh_data)
+        response = self.session.post(url, data=ssh_data)
         if response.status_code != 200:
             raise CoreApiError(f"Core API error occurred status_code: {response.status_code} "
                                f"message: {response.content}")
