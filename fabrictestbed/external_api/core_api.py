@@ -229,7 +229,7 @@ class CoreApi:
 
         @return list of ssh keys
         """
-        uuid, email = self.get_user_info(token=token)
+        uuid = self.get_user_id(token=token)
 
         url = f'{self.api_server}/sshkeys?person_uuid={uuid}'
         response = self.__get_session(token=token).get(url)
@@ -252,7 +252,7 @@ class CoreApi:
 
         @return list of ssh keys
         """
-        uuid, email = self.get_user_info(token=token)
+        uuid = self.get_user_id(token=token)
 
         ssh_data = {
             Constants.DESCRIPTION: description,
