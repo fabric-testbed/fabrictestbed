@@ -567,7 +567,7 @@ class SliceManager:
             error_message = Utils.extract_error_message(exception=e)
             raise SliceManagerException(error_message)
 
-    def create_ssh_keys(self, key_type: str, description: str, comment: str = "Created via API",
+    def create_ssh_keys(self, key_type: str, description: str, comment: str = "ssh-key-via-api",
                         store_pubkey: bool = True) -> list:
         """
         Create SSH Keys for a user

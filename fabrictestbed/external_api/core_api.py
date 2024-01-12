@@ -227,7 +227,7 @@ class CoreApi:
         return response.json().get("results")
 
     def create_ssh_keys(self, key_type: str, description: str,
-                        comment: str = "Created via API", store_pubkey: bool = True) -> list:
+                        comment: str = "ssh-key-via-api", store_pubkey: bool = True) -> list:
         """
         Create SSH Keys for a user
         @param description: Key Description
