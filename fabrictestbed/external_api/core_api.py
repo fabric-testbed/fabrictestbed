@@ -23,6 +23,7 @@
 #
 # Author Komal Thareja (kthare10@renci.org)
 import datetime
+import json
 import logging
 from typing import Tuple, List
 
@@ -49,9 +50,9 @@ class CoreApi:
 
         # Set the headers
         self.headers = {
+            'Authorization': f'Bearer {token}',
             'Accept': 'application/json',
-            'Content-Type': "application/json",
-            'authorization': f"Bearer {token}"
+            'Content-Type': 'application/json'
         }
 
     def get_user_id(self) -> str:
@@ -236,14 +237,18 @@ class CoreApi:
 
         @return list of ssh keys
         """
-        ssh_data = {
-            Constants.DESCRIPTION: description,
-            Constants.COMMENT: comment,
-            Constants.KEY_TYPE: key_type,
-            Constants.STORE_PUBKEY: store_pubkey
+        api_url = f'https://{self.api_server}'
+
+        data = {
+            "comment": comment,
+            "description": description,
+            "keytype": key_type,
+            "store_pubkey": store_pubkey
         }
-        url = f'{self.api_server}/sshkeys'
-        response = requests.post(url, json=ssh_data, headers=self.headers)
+
+        # Make a POST request to the core-api API
+        response = requests.post(f'{api_url}/sshkeys', headers=self.headers, data=json.dumps(data))
+
         if response.status_code != 200:
             raise CoreApiError(f"Core API error occurred status_code: {response.status_code} "
                                f"message: {response.content}")
