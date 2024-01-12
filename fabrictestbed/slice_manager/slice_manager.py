@@ -220,6 +220,9 @@ class SliceManager:
             if status == CmStatus.OK:
                 self.tokens = tokens
                 return tokens.get(CredmgrProxy.ID_TOKEN, None), tokens.get(CredmgrProxy.REFRESH_TOKEN, None)
+            else:
+                error_message = Utils.extract_error_message(exception=tokens)
+                raise SliceManagerException(error_message)
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
             raise SliceManagerException(error_message)

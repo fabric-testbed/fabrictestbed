@@ -52,16 +52,23 @@ class Utils:
 
     @staticmethod
     def extract_error_message(*, exception):
-        body = exception
         if hasattr(exception, "body"):
-            body = exception.body
-        try:
-            response_body = json.loads(body)
-            errors = response_body.get("errors")
-            if errors and len(errors) > 0:
-                return f"{errors[0].get('message')} - {errors[0].get('details')}"
-        except Exception:
-            return str(exception)
+            response_body = exception.body
+        elif hasattr(exception, "error"):
+            response_body = exception.error
+        elif isinstance(exception, dict) and "error" in exception:
+            response_body = exception.get("error")
+        else:
+            response_body = exception
+        if response_body:
+            try:
+                if not isinstance(response_body, dict):
+                    response_body = json.loads(response_body)
+                errors = response_body.get("errors")
+                if errors and len(errors) > 0:
+                    return f"{errors[0].get('message')} - {errors[0].get('details')}"
+            except Exception:
+                return str(exception)
         return str(exception)
 
     @staticmethod
