@@ -237,8 +237,6 @@ class CoreApi:
 
         @return list of ssh keys
         """
-        api_url = f'https://{self.api_server}'
-
         data = {
             "comment": comment,
             "description": description,
@@ -247,7 +245,7 @@ class CoreApi:
         }
 
         # Make a POST request to the core-api API
-        response = requests.post(f'{api_url}/sshkeys', headers=self.headers, data=json.dumps(data))
+        response = requests.post(f'{self.api_server}/sshkeys', headers=self.headers, data=json.dumps(data))
 
         if response.status_code != 200:
             raise CoreApiError(f"Core API error occurred status_code: {response.status_code} "
