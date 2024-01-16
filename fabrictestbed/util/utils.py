@@ -26,6 +26,10 @@
 #
 import hashlib
 import json
+from datetime import datetime, timedelta
+
+from fss_utils.jwt_manager import ValidateCode
+from fss_utils.jwt_validate import JWTValidator
 
 
 class Utils:
@@ -48,14 +52,31 @@ class Utils:
 
     @staticmethod
     def extract_error_message(*, exception):
-        body = exception
         if hasattr(exception, "body"):
-            body = exception.body
-        try:
-            response_body = json.loads(body)
-            errors = response_body.get("errors")
-            if errors and len(errors) > 0:
-                return f"{errors[0].get('message')} - {errors[0].get('details')}"
-        except Exception:
-            return str(exception)
+            response_body = exception.body
+        elif hasattr(exception, "error"):
+            response_body = exception.error
+        elif isinstance(exception, dict) and "error" in exception:
+            response_body = exception.get("error")
+        else:
+            response_body = exception
+        if response_body:
+            try:
+                if not isinstance(response_body, dict):
+                    response_body = json.loads(response_body)
+                errors = response_body.get("errors")
+                if errors and len(errors) > 0:
+                    return f"{errors[0].get('message')} - {errors[0].get('details')}"
+            except Exception:
+                return str(exception)
         return str(exception)
+
+    @staticmethod
+    def decode_token(*, cm_host: str, token: str) -> dict:
+        t = datetime.strptime("00:10:00", "%H:%M:%S")
+        jwt_validator = JWTValidator(url=f"https://{cm_host}/credmgr/certs",
+                                     refresh_period=timedelta(hours=t.hour, minutes=t.minute, seconds=t.second))
+        code, token_or_exception = jwt_validator.validate_jwt(token=token, verify_exp=True)
+        if code is not ValidateCode.VALID:
+            raise Exception(f"Unable to validate provided token: {code}/{token_or_exception}")
+        return token_or_exception
