@@ -556,7 +556,7 @@ class SliceManager:
             if client is not None:
                 client.close()
 
-    def get_ssh_keys(self) -> list:
+    def get_ssh_keys(self, uuid: str = None, email: str = None) -> list:
         """
         Return SSH Keys
         :return list of ssh keys
@@ -565,7 +565,7 @@ class SliceManager:
             if self.__should_renew():
                 self.__load_tokens()
             core_api_proxy = CoreApi(core_api_host=self.core_api_host, token=self.get_id_token())
-            return core_api_proxy.get_ssh_keys()
+            return core_api_proxy.get_ssh_keys(uuid=uuid, email=email)
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
             raise SliceManagerException(error_message)
@@ -591,7 +591,7 @@ class SliceManager:
             error_message = Utils.extract_error_message(exception=e)
             raise SliceManagerException(error_message)
 
-    def get_user_info(self, uuid: str = None) -> dict:
+    def get_user_info(self, uuid: str = None, email: str = None) -> dict:
         """
         Return User's uuid by querying via Core API
 
@@ -601,7 +601,7 @@ class SliceManager:
             if self.__should_renew():
                 self.__load_tokens()
             core_api_proxy = CoreApi(core_api_host=self.core_api_host, token=self.get_id_token())
-            return core_api_proxy.get_user_info(uuid=uuid)
+            return core_api_proxy.get_user_info(uuid=uuid, email=email)
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
             raise SliceManagerException(error_message)

@@ -71,13 +71,33 @@ class CoreApi:
 
         return response.json().get("results")[0].get("uuid")
 
-    def get_user_info(self, *, uuid: str = None) -> dict:
+    def get_user_info_by_email(self, *, email: str) -> dict:
+        if email is None:
+            raise CoreApiError("Core API error email must be specified!")
+
+        url = f'{self.api_server}/people?search={email}&exact_match=true&offset=0&limit=5'
+        response = requests.get(url, headers=self.headers)
+        if response.status_code != 200:
+            raise CoreApiError(f"Core API error occurred status_code: {response.status_code} "
+                               f"message: {response.content}")
+
+        logging.debug(f"GET PEOPLE Response : {response.json()}")
+        results = response.json().get("results")
+        if len(results):
+            return response.json().get("results")[0]
+
+    def get_user_info(self, *, uuid: str = None, email: str = None) -> dict:
         """
         Return User's uuid by querying via /whoami Core API
+        @param uuid User's uuid
+        @param email email
         
         @return User's uuid and email
         """
-        if uuid is None:
+        if email is not None:
+            return self.get_user_info_by_email(email=email)
+
+        if uuid is None and email is None:
             uuid = self.get_user_id()
 
         url = f'{self.api_server}/people/{uuid}?as_self=true'
@@ -208,13 +228,20 @@ class CoreApi:
 
         return ret_val
 
-    def get_ssh_keys(self, *, uuid: str = None) -> list:
+    def get_ssh_keys(self, *, uuid: str = None, email: str = None) -> list:
         """
         Return SSH Keys, given user's uuid
+        @param uuid: uuid
+        @param email:
 
         @return list of ssh keys
         """
-        if uuid is None:
+        if email is not None:
+            user_info = self.get_user_info(email=email)
+            if user_info is None:
+                raise CoreApiError(f"Core API error {email} not found")
+            uuid = user_info.get("uuid")
+        elif uuid is None:
             uuid = self.get_user_id()
 
         url = f'{self.api_server}/sshkeys?person_uuid={uuid}'
