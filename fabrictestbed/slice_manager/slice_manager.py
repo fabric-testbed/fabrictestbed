@@ -33,7 +33,6 @@ import paramiko
 from fabric_cf.orchestrator.swagger_client import Sliver, Slice
 from fabric_cf.orchestrator.swagger_client.models import PoaData
 from fabric_cm.credmgr.credmgr_proxy import TokenType
-from fabric_cm.credmgr.swagger_client.models import DecodedToken
 
 from fabrictestbed.external_api.core_api import CoreApi
 from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology, Node, GraphFormat
@@ -53,7 +52,8 @@ class SliceManager:
     def __init__(self, *, cm_host: str = None, oc_host: str = None, core_api_host: str = None,
                  token_location: str = None,
                  project_id: str = None, scope: str = "all", initialize: bool = True,
-                 project_name: str = None):
+                 project_name: str = None, auto_refresh: bool = True):
+        self.auto_refresh = auto_refresh
         self.logger = logging.getLogger()
         if cm_host is None:
             cm_host = os.environ.get(Constants.FABRIC_CREDMGR_HOST)
@@ -147,6 +147,8 @@ class SliceManager:
         from the token file are read instead of the local variables
         """
         # Load the tokens from the JSON
+        if not self.auto_refresh:
+            return
         if os.path.exists(self.token_location):
             with open(self.token_location, 'r') as stream:
                 self.tokens = json.loads(stream.read())
