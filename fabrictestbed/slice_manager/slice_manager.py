@@ -33,7 +33,6 @@ import paramiko
 from fabric_cf.orchestrator.swagger_client import Sliver, Slice
 from fabric_cf.orchestrator.swagger_client.models import PoaData
 from fabric_cm.credmgr.credmgr_proxy import TokenType
-from fabric_cm.credmgr.swagger_client.models import DecodedToken
 
 from fabrictestbed.external_api.core_api import CoreApi
 from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology, Node, GraphFormat
@@ -53,7 +52,8 @@ class SliceManager:
     def __init__(self, *, cm_host: str = None, oc_host: str = None, core_api_host: str = None,
                  token_location: str = None,
                  project_id: str = None, scope: str = "all", initialize: bool = True,
-                 project_name: str = None):
+                 project_name: str = None, auto_refresh: bool = True):
+        self.auto_refresh = auto_refresh
         self.logger = logging.getLogger()
         if cm_host is None:
             cm_host = os.environ.get(Constants.FABRIC_CREDMGR_HOST)
@@ -77,9 +77,10 @@ class SliceManager:
             self.token_location = os.environ.get(Constants.FABRIC_TOKEN_LOCATION)
         self.initialized = False
 
-        if cm_host is None or oc_host is None or core_api_host is None or token_location is None:
+        if cm_host is None or oc_host is None or self.core_api_host is None or self.token_location is None:
             raise SliceManagerException(f"Invalid initialization parameters: cm_host: {cm_host}, "
-                                        f"oc_host: {oc_host} core_api_host: {cm_host} token_location: {token_location}")
+                                        f"oc_host: {oc_host} core_api_host: {core_api_host} "
+                                        f"token_location: {self.token_location}")
 
         # Try to load the project_id or project_name from the Token
         if project_id is None and project_name is None:
@@ -157,7 +158,7 @@ class SliceManager:
         if refresh_token is None:
             raise SliceManagerException(f"Unable to refresh tokens: no refresh token found!")
         # Renew the tokens to ensure any project_id changes are taken into account
-        if refresh:
+        if refresh and self.auto_refresh:
             self.refresh_tokens(refresh_token=refresh_token)
 
     def get_refresh_token(self) -> str:
