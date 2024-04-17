@@ -155,8 +155,6 @@ class SliceManager:
         else:
             # First time login, use environment variable to load the tokens
             refresh_token = os.environ.get(Constants.CILOGON_REFRESH_TOKEN)
-        if refresh_token is None:
-            raise SliceManagerException(f"Unable to refresh tokens: no refresh token found!")
         # Renew the tokens to ensure any project_id changes are taken into account
         if refresh and self.auto_refresh:
             self.refresh_tokens(refresh_token=refresh_token)
@@ -433,18 +431,24 @@ class SliceManager:
             error_message = Utils.extract_error_message(exception=e)
             return Status.FAILURE, SliceManagerException(error_message)
 
-    def resources(self, *, level: int = 1,
-                  force_refresh: bool = False) -> Tuple[Status, Union[SliceManagerException, AdvertisedTopology]]:
+    def resources(self, *, level: int = 1, force_refresh: bool = False, start: datetime = None, end: datetime = None,
+                  includes: List[str] = None,
+                  excludes: List[str] = None) -> Tuple[Status, Union[SliceManagerException, AdvertisedTopology]]:
         """
         Get resources
         @param level level
         @param force_refresh force_refresh
+        @param start start time
+        @param end end time
+        @param includes list of sites to include
+        @param excludes list of sites to exclude
         @return Tuple containing Status and Exception/Json containing Resources
         """
         try:
             if self.__should_renew():
                 self.__load_tokens()
-            return self.oc_proxy.resources(token=self.get_id_token(), level=level, force_refresh=force_refresh)
+            return self.oc_proxy.resources(token=self.get_id_token(), level=level, force_refresh=force_refresh,
+                                           start=start, end=end, includes=includes, excludes=excludes)
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
             return Status.FAILURE, SliceManagerException(error_message)
