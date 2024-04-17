@@ -157,8 +157,6 @@ class SliceManager:
             refresh_token = os.environ.get(Constants.CILOGON_REFRESH_TOKEN)
         # Renew the tokens to ensure any project_id changes are taken into account
         if refresh and self.auto_refresh:
-            if refresh_token is None:
-                raise SliceManagerException(f"Unable to refresh tokens: no refresh token found!")
             self.refresh_tokens(refresh_token=refresh_token)
 
     def get_refresh_token(self) -> str:
