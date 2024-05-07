@@ -277,7 +277,7 @@ class SliceManager:
         return Status.FAILURE, f"Failed to clear token cache: {Utils.extract_error_message(exception=exception)}"
 
     def create(self, *, slice_name: str, ssh_key: Union[str, List[str]], topology: ExperimentTopology = None,
-               slice_graph: str = None,
+               slice_graph: str = None, lease_start_time: str = None,
                lease_end_time: str = None) -> Tuple[Status, Union[SliceManagerException, List[Sliver]]]:
         """
         Create a slice
@@ -285,6 +285,7 @@ class SliceManager:
         @param ssh_key SSH Key(s)
         @param topology Experiment topology
         @param slice_graph Slice Graph string
+        @param lease_start_time Lease Start Time
         @param lease_end_time Lease End Time
         @return Tuple containing Status and Exception/Json containing slivers created
         """
@@ -304,7 +305,8 @@ class SliceManager:
             if self.__should_renew():
                 self.__load_tokens()
             return self.oc_proxy.create(token=self.get_id_token(), slice_name=slice_name, ssh_key=ssh_key,
-                                        topology=topology, slice_graph=slice_graph, lease_end_time=lease_end_time)
+                                        topology=topology, slice_graph=slice_graph, lease_end_time=lease_end_time,
+                                        lease_start_time=lease_start_time)
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
             return Status.FAILURE, SliceManagerException(error_message)
