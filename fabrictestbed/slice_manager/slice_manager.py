@@ -630,3 +630,21 @@ class SliceManager:
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
             raise SliceManagerException(error_message)
+
+    def get_metrics_overview(self, excluded_projects: List[str] = None,
+                             authenticated: bool = False) -> Tuple[Status, Union[list, Exception]]:
+        """
+        Get Metrics overview
+        @param excluded_projects: excluded_projects
+        @param authenticated: Specific user metrics
+        @return list of metrics
+        """
+        try:
+            token = None
+            if authenticated and self.__should_renew():
+                self.__load_tokens()
+                token = self.get_id_token()
+            return self.oc_proxy.get_metrics_overview(token=token, excluded_projects=excluded_projects)
+        except Exception as e:
+            error_message = Utils.extract_error_message(exception=e)
+            return Status.FAILURE, SliceManagerException(error_message)
