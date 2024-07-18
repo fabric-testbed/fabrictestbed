@@ -157,8 +157,6 @@ class SliceManager:
             refresh_token = os.environ.get(Constants.CILOGON_REFRESH_TOKEN)
         # Renew the tokens to ensure any project_id changes are taken into account
         if refresh and self.auto_refresh:
-            if refresh_token is None:
-                raise SliceManagerException(f"Unable to refresh tokens: no refresh token found!")
             self.refresh_tokens(refresh_token=refresh_token)
 
     def get_refresh_token(self) -> str:
@@ -279,7 +277,7 @@ class SliceManager:
         return Status.FAILURE, f"Failed to clear token cache: {Utils.extract_error_message(exception=exception)}"
 
     def create(self, *, slice_name: str, ssh_key: Union[str, List[str]], topology: ExperimentTopology = None,
-               slice_graph: str = None,
+               slice_graph: str = None, lease_start_time: str = None,
                lease_end_time: str = None) -> Tuple[Status, Union[SliceManagerException, List[Sliver]]]:
         """
         Create a slice
@@ -287,6 +285,7 @@ class SliceManager:
         @param ssh_key SSH Key(s)
         @param topology Experiment topology
         @param slice_graph Slice Graph string
+        @param lease_start_time Lease Start Time
         @param lease_end_time Lease End Time
         @return Tuple containing Status and Exception/Json containing slivers created
         """
@@ -306,7 +305,8 @@ class SliceManager:
             if self.__should_renew():
                 self.__load_tokens()
             return self.oc_proxy.create(token=self.get_id_token(), slice_name=slice_name, ssh_key=ssh_key,
-                                        topology=topology, slice_graph=slice_graph, lease_end_time=lease_end_time)
+                                        topology=topology, slice_graph=slice_graph, lease_end_time=lease_end_time,
+                                        lease_start_time=lease_start_time)
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
             return Status.FAILURE, SliceManagerException(error_message)
@@ -433,18 +433,24 @@ class SliceManager:
             error_message = Utils.extract_error_message(exception=e)
             return Status.FAILURE, SliceManagerException(error_message)
 
-    def resources(self, *, level: int = 1,
-                  force_refresh: bool = False) -> Tuple[Status, Union[SliceManagerException, AdvertisedTopology]]:
+    def resources(self, *, level: int = 1, force_refresh: bool = False, start: datetime = None, end: datetime = None,
+                  includes: List[str] = None,
+                  excludes: List[str] = None) -> Tuple[Status, Union[SliceManagerException, AdvertisedTopology]]:
         """
         Get resources
         @param level level
         @param force_refresh force_refresh
+        @param start start time
+        @param end end time
+        @param includes list of sites to include
+        @param excludes list of sites to exclude
         @return Tuple containing Status and Exception/Json containing Resources
         """
         try:
             if self.__should_renew():
                 self.__load_tokens()
-            return self.oc_proxy.resources(token=self.get_id_token(), level=level, force_refresh=force_refresh)
+            return self.oc_proxy.resources(token=self.get_id_token(), level=level, force_refresh=force_refresh,
+                                           start=start, end=end, includes=includes, excludes=excludes)
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
             return Status.FAILURE, SliceManagerException(error_message)
@@ -624,3 +630,21 @@ class SliceManager:
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
             raise SliceManagerException(error_message)
+
+    def get_metrics_overview(self, excluded_projects: List[str] = None,
+                             authenticated: bool = False) -> Tuple[Status, Union[list, Exception]]:
+        """
+        Get Metrics overview
+        @param excluded_projects: excluded_projects
+        @param authenticated: Specific user metrics
+        @return list of metrics
+        """
+        try:
+            token = None
+            if authenticated and self.__should_renew():
+                self.__load_tokens()
+                token = self.get_id_token()
+            return self.oc_proxy.get_metrics_overview(token=token, excluded_projects=excluded_projects)
+        except Exception as e:
+            error_message = Utils.extract_error_message(exception=e)
+            return Status.FAILURE, SliceManagerException(error_message)
