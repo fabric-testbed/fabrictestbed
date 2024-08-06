@@ -156,7 +156,7 @@ class SliceManager:
             # First time login, use environment variable to load the tokens
             refresh_token = os.environ.get(Constants.CILOGON_REFRESH_TOKEN)
         # Renew the tokens to ensure any project_id changes are taken into account
-        if refresh and self.auto_refresh:
+        if refresh and self.auto_refresh and refresh_token:
             self.refresh_tokens(refresh_token=refresh_token)
 
     def get_refresh_token(self) -> str:

@@ -20,7 +20,7 @@ dependencies = [
     "fabric_fss_utils>=1.5.1",
     "click",
     "fabric-credmgr-client==1.6.1",
-    "fabric-orchestrator-client==1.7.0",
+    "fabric-orchestrator-client==1.7.1",
     "paramiko"
     ]
 
