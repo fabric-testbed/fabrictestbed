@@ -33,7 +33,6 @@ import click
 from fabric_cf.orchestrator.orchestrator_proxy import SliceState
 from fabric_cm.credmgr.credmgr_proxy import TokenType
 from fabrictestbed.util.utils import Utils
-from fim.slivers.network_node import NodeSliver
 
 from .exceptions import TokenExpiredException
 from ..slice_manager import CredmgrProxy
@@ -485,33 +484,6 @@ def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sco
 
     except TokenExpiredException:
         raise click.ClickException("Unauthorized: Valid token required")
-    except Exception as e:
-        raise click.ClickException(str(e))
-
-
-@slivers.command()
-@click.option('--sshkeyfile', help='Location of SSH Private Key file to use to access the Sliver')
-@click.option('--sliceaddress', help='IP address or the connection string to use to access the sliver')
-@click.option('--username', default=None, help='Username to use to access the sliver')
-@click.option('--command', default=None, help='Command to be executed on the sliver')
-@click.pass_context
-def execute(ctx, sshkeyfile: str, sliceaddress: str, username: str, command: str):
-    """ Query slice_editor slice sliver(s)
-    """
-    try:
-        slice_manager = __get_slice_manager()
-
-        sliver = NodeSliver()
-        sliver.management_ip = sliceaddress
-        status, response = slice_manager.execute(ssh_key_file=sshkeyfile, sliver=sliver,
-                                                 username=username, command=command)
-
-        if status == Status.OK:
-            output, error = response
-            click.echo(f"Output: {output}")
-            click.echo(f"Error: {error}")
-        else:
-            click.echo(Utils.extract_error_message(exception=response))
     except Exception as e:
         raise click.ClickException(str(e))
 
