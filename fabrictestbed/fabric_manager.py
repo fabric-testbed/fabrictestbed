@@ -352,7 +352,7 @@ class FabricManager(SliceManager):
             raise FabricManagerException(error_message)
 
     def download_artifact(self, download_dir: str, artifact_id: str = None, artifact_title: str = None,
-                          version: str = None):
+                          version: str = None, version_urn: str = None):
         """
         Download an artifact to a specified directory.
 
@@ -363,28 +363,29 @@ class FabricManager(SliceManager):
         :param artifact_id: The unique identifier of the artifact to download.
         :param artifact_title: The title of the artifact to download.
         :param version: The specific version of the artifact to download (optional).
+        :param version_urn: Version urn for the artifact.
         :return: The path to the downloaded artifact.
         :raises ValueError: If neither `artifact_id` nor `artifact_title` is provided.
         :raises FabricManagerException: If an error occurs during the download process.
         """
-        if artifact_id is None and artifact_title is None:
-            raise ValueError("Either artifact_id or artifact_title must be specified!")
+        if artifact_id is None and artifact_title is None and version_urn:
+            raise ValueError("Either artifact_id, artifact_title or version_urn must be specified!")
         try:
             am_proxy = ArtifactManager(api_url=self.am_host, token=self.ensure_valid_token())
-            artifact = self.get_artifact(artifact_id=artifact_id, artifact_title=artifact_title)
-            artifact_urn = None
-            for v in artifact.get("versions"):
-                if not version:
-                    version = v.get("version")
-                    artifact_urn = v.get("urn")
-                    break
-                if version in v:
-                    artifact_urn = v.get("urn")
-                    break
-            if not artifact_urn:
-                raise ValueError(f"Requested version: {version} not found for the artifact: "
-                                 f"{artifact_id}/{artifact_title}!")
-            return am_proxy.download_artifact(urn=artifact_urn, download_dir=download_dir, version=version)
+            if not version_urn:
+                artifact = self.get_artifact(artifact_id=artifact_id, artifact_title=artifact_title)
+                for v in artifact.get("versions"):
+                    if not version:
+                        version = v.get("version")
+                        version_urn = v.get("urn")
+                        break
+                    if version in v:
+                        version_urn = v.get("urn")
+                        break
+            if not version_urn:
+                raise ValueError(f"Requested artifact: {artifact_id}/{artifact_title} with {version}/{version_urn} "
+                                 f"can not be found!")
+            return am_proxy.download_artifact(urn=version_urn, download_dir=download_dir, version=version)
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
             raise FabricManagerException(error_message)
