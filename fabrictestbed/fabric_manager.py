@@ -368,7 +368,7 @@ class FabricManager(SliceManager):
         :raises ValueError: If neither `artifact_id` nor `artifact_title` is provided.
         :raises FabricManagerException: If an error occurs during the download process.
         """
-        if artifact_id is None and artifact_title is None and version_urn:
+        if artifact_id is None and artifact_title is None and version_urn is None:
             raise ValueError("Either artifact_id, artifact_title or version_urn must be specified!")
         try:
             am_proxy = ArtifactManager(api_url=self.am_host, token=self.ensure_valid_token())

@@ -264,14 +264,10 @@ class ArtifactManager:
                 for chunk in response.iter_content(chunk_size=8192):
                     if chunk:
                         file.write(chunk)
-
-            print(f"Downloaded {urn} to {file_path}")
             return file_path
         except requests.HTTPError as e:
-            print(f"HTTPError: {e}")
             raise ArtifactManagerError(f"HTTPError: {e}")
         except Exception as e:
-            print(f"Exception: {e}")
             raise ArtifactManagerError(f"Exception: {e}")
 
     def delete_artifact(self, artifact_id: str):
