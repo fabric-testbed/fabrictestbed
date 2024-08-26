@@ -189,17 +189,23 @@ class FabricManager(SliceManager):
         :raises FabricManagerException: If there is an error in creating or updating the artifact.
         """
         try:
+            if not authors:
+                authors = []
             am_proxy = ArtifactManager(api_url=self.am_host, token=self.ensure_valid_token())
             existing_artifacts = am_proxy.list_artifacts(search=artifact_title)
 
             artifact = None
             if update_existing:
                 for e in existing_artifacts:
-                    if self.project_id in e.get("project_uuid"):
+                    if any(author.get('uuid') == self.user_id for author in e.get('authors')):
                         artifact = e
                         break
 
-            authors = [self.get_user_id()] if not authors else authors.append(self.get_user_id())
+            author_ids = [self.get_user_id()]
+            for a in authors:
+                author_info = self.get_user_info(email=a)
+                if author_info and author_info.get('uuid'):
+                    author_ids.append(author_info.get('uuid'))
 
             if not artifact:
                 artifact = am_proxy.create_artifact(
@@ -208,7 +214,7 @@ class FabricManager(SliceManager):
                     description_long=description_long,
                     tags=tags,
                     visibility=visibility,
-                    authors=authors,
+                    authors=author_ids,
                     project_id=self.project_id
                 )
             else:
