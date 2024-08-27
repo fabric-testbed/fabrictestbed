@@ -232,9 +232,8 @@ class ArtifactManager:
         download_url = f"{self.api_url}/contents/download/{urn}"
 
         # Define headers to match the curl command
-        headers = {
-            'accept': 'application/json'
-        }
+        headers = self.headers.copy()
+        headers.pop("Content-Type")
 
         try:
             response = requests.get(download_url, headers=headers, stream=True)
