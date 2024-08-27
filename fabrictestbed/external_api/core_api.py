@@ -25,10 +25,9 @@
 import datetime
 import json
 import logging
-from typing import Tuple, List
+from typing import List
 
 import requests
-from fabrictestbed.util.constants import Constants
 
 
 class CoreApiError(Exception):
