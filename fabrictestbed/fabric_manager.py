@@ -233,17 +233,21 @@ class FabricManager(SliceManager):
             error_message = Utils.extract_error_message(exception=e)
             raise FabricManagerException(error_message)
 
-    def list_artifacts(self, search: str = None) -> list:
+    def list_artifacts(self, search: str = None, artifact_id: str = None) -> list:
         """
         List artifacts based on a search query.
 
-        :param search: Search query for filtering artifacts
+        :param search: Search can be tag or title query for filtering artifacts
+        :param artifact_id: The unique identifier of the artifact to retrieve.
         :return: List of artifacts
         :raises FabricManagerException: If there is an error in listing the artifacts.
         """
         try:
             am_proxy = ArtifactManager(api_url=self.am_host, token=self.ensure_valid_token())
-            return am_proxy.list_artifacts(search=search)
+            if not artifact_id:
+                return am_proxy.list_artifacts(search=search)
+            else:
+                return [am_proxy.get_artifact(artifact_id=artifact_id)]
         except Exception as e:
             raise FabricManagerException(Utils.extract_error_message(exception=e))
 
@@ -265,51 +269,18 @@ class FabricManager(SliceManager):
 
         try:
             am_proxy = ArtifactManager(api_url=self.am_host, token=self.ensure_valid_token())
-            if not artifact_id:
-                existing_artifacts = am_proxy.list_artifacts(search=artifact_title)
+            existing_artifacts = self.list_artifacts(search=artifact_title, artifact_id=artifact_id)
 
-                artifact = None
-                for e in existing_artifacts:
-                    if self.project_id in e.get("project_uuid"):
-                        artifact = e
-                        break
-                if artifact:
-                    artifact_id = artifact.get("uuid")
+            artifact = None
+            for e in existing_artifacts:
+                if any(author.get('uuid') == self.user_id for author in e.get('authors')):
+                    artifact = e
+                    break
+            if artifact:
+                artifact_id = artifact.get("uuid")
 
             if artifact_id:
                 am_proxy.delete_artifact(artifact_id=artifact_id)
-        except Exception as e:
-            error_message = Utils.extract_error_message(exception=e)
-            raise FabricManagerException(error_message)
-
-    def get_artifact(self, artifact_id: str = None, artifact_title: str = None):
-        """
-        Retrieve an artifact by its ID or title.
-
-        This method retrieves an artifact from the system based on either its `artifact_id` or `artifact_title`.
-        If `artifact_id` is not provided, the method will search for the artifact using `artifact_title`.
-
-        :param artifact_id: The unique identifier of the artifact to retrieve.
-        :param artifact_title: The title of the artifact to retrieve.
-        :return: A dictionary containing the artifact details.
-        :raises ValueError: If neither `artifact_id` nor `artifact_title` is provided.
-        :raises FabricManagerException: If an error occurs during the retrieval process.
-        """
-        if artifact_id is None and artifact_title is None:
-            raise ValueError("Either artifact_id or artifact_title must be specified!")
-
-        try:
-            am_proxy = ArtifactManager(api_url=self.am_host, token=self.ensure_valid_token())
-            if not artifact_id:
-                existing_artifacts = am_proxy.list_artifacts(search=artifact_title)
-
-                artifact = None
-                for e in existing_artifacts:
-                    if self.project_id in e.get("project_uuid"):
-                        artifact = e
-                        break
-                return artifact
-            am_proxy.get_artifact(artifact_id=artifact_id)
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
             raise FabricManagerException(error_message)
@@ -350,10 +321,12 @@ class FabricManager(SliceManager):
 
         try:
             am_proxy = ArtifactManager(api_url=self.am_host, token=self.ensure_valid_token())
-            if not artifact_id:
-                artifact = self.get_artifact(artifact_id=artifact_id, artifact_title=artifact_title)
-                if artifact:
-                    artifact_id = artifact.get(artifact.get("uuid"))
+            artifacts = self.list_artifacts(artifact_id=artifact_id, search=artifact_title)
+            if len(artifacts) != 1:
+                raise ValueError(f"Requested artifact: {artifact_id}/{artifact_title} has 0 or more than versions "
+                                 f"available, Please specify the version to download!")
+            artifact = artifacts[0]
+            artifact_id = artifact.get(artifact.get("uuid"))
             return am_proxy.upload_file_to_artifact(artifact_id=artifact_id, file_path=file_to_upload)
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
@@ -381,7 +354,11 @@ class FabricManager(SliceManager):
         try:
             am_proxy = ArtifactManager(api_url=self.am_host, token=self.ensure_valid_token())
             if not version_urn:
-                artifact = self.get_artifact(artifact_id=artifact_id, artifact_title=artifact_title)
+                artifacts = self.list_artifacts(artifact_id=artifact_id, search=artifact_title)
+                if len(artifacts) != 1:
+                    raise ValueError(f"Requested artifact: {artifact_id}/{artifact_title} has 0 or more than versions "
+                                     f"available, Please specify the version to download!")
+                artifact = artifacts[0]
                 for v in artifact.get("versions"):
                     if not version:
                         version = v.get("version")
