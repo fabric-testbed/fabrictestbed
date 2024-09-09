@@ -146,8 +146,8 @@ class SliceManager(TokenManager):
             return Status.FAILURE, SliceManagerException(error_message)
 
     def slices(self, includes: List[SliceState] = None, excludes: List[SliceState] = None, name: str = None,
-               limit: int = 20, offset: int = 0, slice_id: str = None,
-               as_self: bool = True, graph_format: str = GraphFormat.GRAPHML.name) -> Tuple[Status, Union[SliceManagerException, List[Slice]]]:
+               limit: int = 20, offset: int = 0, slice_id: str = None, as_self: bool = True,
+               graph_format: str = GraphFormat.GRAPHML.name) -> Tuple[Status, Union[SliceManagerException, List[Slice]]]:
         """
         Get slices
         @param includes list of the slice state used to include the slices in the output
