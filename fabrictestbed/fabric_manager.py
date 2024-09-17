@@ -226,7 +226,7 @@ class FabricManager(SliceManager):
                                          description_long=description_long,
                                          tags=tags,
                                          visibility=visibility,
-                                         authors=authors, project_id=self.project_id)
+                                         authors=author_ids, project_id=self.project_id)
             return artifact
 
         except Exception as e:
