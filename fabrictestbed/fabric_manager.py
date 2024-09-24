@@ -197,11 +197,14 @@ class FabricManager(SliceManager):
             artifact = None
             if update_existing:
                 for e in existing_artifacts:
-                    if any(author.get('uuid') == self.user_id for author in e.get('authors')):
-                        artifact = e
+                    for author in e.get("authors"):
+                        if author.get("uuid") == self.get_user_id():
+                            artifact = e
+                            break
+                    if artifact:
                         break
 
-            author_ids = [self.get_user_id()]
+                author_ids = [self.get_user_id()]
             if self.user_email in authors:
                 authors.remove(self.user_email)
             for a in authors:
@@ -326,7 +329,7 @@ class FabricManager(SliceManager):
                 raise ValueError(f"Requested artifact: {artifact_id}/{artifact_title} has 0 or more than versions "
                                  f"available, Please specify the version to download!")
             artifact = artifacts[0]
-            artifact_id = artifact.get(artifact.get("uuid"))
+            artifact_id = artifact.get("uuid")
             return am_proxy.upload_file_to_artifact(artifact_id=artifact_id, file_path=file_to_upload)
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
