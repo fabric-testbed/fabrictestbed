@@ -204,7 +204,7 @@ class FabricManager(SliceManager):
                     if artifact:
                         break
 
-                author_ids = [self.get_user_id()]
+            author_ids = [self.get_user_id()]
             if self.user_email in authors:
                 authors.remove(self.user_email)
             for a in authors:
