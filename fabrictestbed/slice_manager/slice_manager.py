@@ -146,8 +146,8 @@ class SliceManager(TokenManager):
             return Status.FAILURE, SliceManagerException(error_message)
 
     def slices(self, includes: List[SliceState] = None, excludes: List[SliceState] = None, name: str = None,
-               limit: int = 20, offset: int = 0, slice_id: str = None,
-               as_self: bool = True) -> Tuple[Status, Union[SliceManagerException, List[Slice]]]:
+               limit: int = 20, offset: int = 0, slice_id: str = None, as_self: bool = True,
+               graph_format: str = GraphFormat.GRAPHML.name) -> Tuple[Status, Union[SliceManagerException, List[Slice]]]:
         """
         Get slices
         @param includes list of the slice state used to include the slices in the output
@@ -157,11 +157,13 @@ class SliceManager(TokenManager):
         @param offset offset of the first slice to return
         @param slice_id slice id
         @param as_self
+        @param graph_format
         @return Tuple containing Status and Exception/Json containing slices
         """
         try:
             return self.oc_proxy.slices(token=self.ensure_valid_token(), includes=includes, excludes=excludes,
-                                        name=name, limit=limit, offset=offset, slice_id=slice_id, as_self=as_self)
+                                        name=name, limit=limit, offset=offset, slice_id=slice_id, as_self=as_self,
+                                        graph_format=graph_format)
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
             return Status.FAILURE, SliceManagerException(error_message)
