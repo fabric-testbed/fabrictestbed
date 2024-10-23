@@ -339,3 +339,17 @@ class TokenManager(ABC):
         if not self.user_email and self.get_id_token() and self.cm_proxy:
             self._extract_project_and_user_info_from_token(cm_host=self.cm_proxy.host)
         return self.user_email
+
+    def get_project_name(self) -> str:
+        """
+        Retrieve the project name associated with the current session.
+
+        This method returns the project name if it has already been determined. If the project name
+        has not been set and an identity token is available, it will attempt to extract
+        the project name by decoding the token using the credential manager proxy.
+
+        @return: The project_name if available; otherwise, None.
+        """
+        if not self.project_name and self.get_id_token() and self.cm_proxy:
+            self._extract_project_and_user_info_from_token(cm_host=self.cm_proxy.host)
+        return self.project_name
