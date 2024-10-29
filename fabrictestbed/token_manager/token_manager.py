@@ -113,7 +113,7 @@ class TokenManager(ABC):
         - Refresh if needed
         """
         if not self.initialized:
-            self._load_tokens(refresh=False)
+            self._load_tokens()
             self.initialized = True
 
     def _check_initialized(self):
