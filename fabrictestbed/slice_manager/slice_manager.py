@@ -58,8 +58,8 @@ class SliceManager(TokenManager):
         self.oc_proxy = OrchestratorProxy(orchestrator_host=oc_host)
 
     def create(self, *, slice_name: str, ssh_key: Union[str, List[str]], topology: ExperimentTopology = None,
-               slice_graph: str = None, lease_start_time: str = None,
-               lease_end_time: str = None) -> Tuple[Status, Union[SliceManagerException, List[Sliver]]]:
+               slice_graph: str = None, lease_start_time: str = None, lease_end_time: str = None,
+	       lifetime: int = 24) -> Tuple[Status, Union[SliceManagerException, List[Sliver]]]:
         """
         Create a slice
         @param slice_name slice name
@@ -68,6 +68,7 @@ class SliceManager(TokenManager):
         @param slice_graph Slice Graph string
         @param lease_start_time Lease Start Time
         @param lease_end_time Lease End Time
+        @param lifetime lifetime in hours
         @return Tuple containing Status and Exception/Json containing slivers created
         """
         if slice_name is None or not isinstance(slice_name, str) or ssh_key is None:
@@ -85,7 +86,7 @@ class SliceManager(TokenManager):
         try:
             return self.oc_proxy.create(token=self.ensure_valid_token(), slice_name=slice_name, ssh_key=ssh_key,
                                         topology=topology, slice_graph=slice_graph, lease_end_time=lease_end_time,
-                                        lease_start_time=lease_start_time)
+                                        lease_start_time=lease_start_time, lifetime=lifetime)
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
             return Status.FAILURE, SliceManagerException(error_message)
