@@ -19,8 +19,8 @@ requires-python = '>=3.9'
 dependencies = [
     "fabric_fss_utils>=1.5.1",
     "click",
-    "fabric-credmgr-client==1.6.1",
-    "fabric-orchestrator-client==1.8.0",
+    "fabric-credmgr-client==1.6.2",
+    "fabric-orchestrator-client==1.8.1",
     "paramiko"
     ]
 
