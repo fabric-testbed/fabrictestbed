@@ -280,7 +280,7 @@ class CoreApi:
         logging.debug(f"POST SSH Keys Response : {response.json()}")
         return response.json().get("results")
 
-    def fetch_quotas(self, project_uuid: str, offset: int = 0, limit: int = 200) -> List[dict]:
+    def list_quotas(self, project_uuid: str, offset: int = 0, limit: int = 200) -> List[dict]:
         """
         Fetch all quotas from the API.
 
@@ -317,7 +317,7 @@ class CoreApi:
         List[dict]: The created quota details.
         """
         data = {
-            "project_id": project_id,
+            "project_uuid": project_id,
             "resource_type": resource_type,
             "resource_unit": resource_unit,
             "quota_used": quota_used,
@@ -360,7 +360,7 @@ class CoreApi:
         List[dict]: The updated quota details.
         """
         data = {
-            "project_id": project_id,
+            "project_uuid": project_id,
             "resource_type": resource_type,
             "resource_unit": resource_unit,
             "quota_used": quota_used,
@@ -401,3 +401,38 @@ class CoreApi:
                 message = {"message": "Unknown error occurred while processing the request."}
 
             raise CoreApiError(f"Error {response.status_code}: {e}. Message: {message}")
+
+
+if __name__ == '__main__':
+    project_id = ""
+    token = ""
+    core_api = CoreApi(core_api_host="alpha-6.fabric-testbed.net", token=token)
+
+    quotas = core_api.list_quotas(project_uuid=project_id)
+    print(f"Fetching quotas: {quotas}")
+
+    resources = ["core", "ram", "disk"]
+    if len(quotas) == 0:
+        for r in resources:
+            core_api.create_quota(project_id=project_id, resource_type=r, resource_unit="hours",
+                                  quota_limit=100, quota_used=0)
+            print(f"Created quota for {r}")
+
+    for q in quotas:
+        core_api.update_quota(uuid=q.get("uuid"), project_id=q.get("project_uuid"),
+                              quota_limit=q.get("quota_limit"), quota_used=q.get("quota_used") + 1,
+                              resource_type=q.get("resource_type"),
+                              resource_unit=q.get("resource_unit"))
+        qq = core_api.get_quota(uuid=q.get("uuid"))
+        print(f"Updated quota: {qq}")
+
+    for q in quotas:
+        print(f"Deleting quota: {q.get('uuid')}")
+        core_api.delete_quota(uuid=q.get("uuid"))
+
+    quotas = core_api.list_quotas(project_uuid="74a5b28b-c1a2-4fad-882b-03362dddfa71")
+    print(f"Quotas after deletion!: {quotas}")
+
+
+    #core_api.create_quota(project_id="74a5b28b-c1a2-4fad-882b-03362dddfa71",
+    #                      resource_type="disk", resource_unit="hours", quota_limit=100)
