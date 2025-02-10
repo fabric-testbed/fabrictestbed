@@ -279,3 +279,125 @@ class CoreApi:
 
         logging.debug(f"POST SSH Keys Response : {response.json()}")
         return response.json().get("results")
+
+    def fetch_quotas(self, project_uuid: str, offset: int = 0, limit: int = 200) -> List[dict]:
+        """
+        Fetch all quotas from the API.
+
+        Parameters:
+        project_uuid (str): The UUID of the project for which quotas are fetched.
+        offset (int, optional): The starting point for fetching records. Defaults to 0.
+        limit (int, optional): The maximum number of records to fetch. Defaults to 200.
+
+        Returns:
+        List[dict]: A list of quota records.
+        """
+        params = {"project_id": project_uuid,
+                  "offset": offset,
+                  "limit": limit}
+
+        response = requests.get(f'{self.api_server}/quotas', headers=self.headers, params=params)
+        self.raise_for_status(response=response)
+        logging.debug(f"GET Quotas Response : {response.json()}")
+        return response.json().get("results")
+
+    def create_quota(self, project_id: str, resource_type: str, resource_unit: str,
+                     quota_used: int = 0, quota_limit: int = 0) -> List[dict]:
+        """
+        Send a POST request to create a new quota.
+
+        Parameters:
+        project_id (str): The ID of the project to which the quota belongs.
+        resource_type (str): The type of resource (e.g., CPU, RAM).
+        resource_unit (str): The unit of the resource (e.g., cores, GB).
+        quota_used (int, optional): The amount of resource currently used. Defaults to 0.
+        quota_limit (int, optional): The limit for the resource. Defaults to 0.
+
+        Returns:
+        List[dict]: The created quota details.
+        """
+        data = {
+            "project_id": project_id,
+            "resource_type": resource_type,
+            "resource_unit": resource_unit,
+            "quota_used": quota_used,
+            "quota_limit": quota_limit
+        }
+        response = requests.post(f'{self.api_server}/quotas', headers=self.headers, json=data)
+        self.raise_for_status(response=response)
+        logging.debug(f"POST Quotas Response : {response.json()}")
+        return response.json().get("results")
+
+    def get_quota(self, uuid: str) -> List[dict]:
+        """
+        Send a GET request to retrieve a quota by UUID.
+
+        Parameters:
+        uuid (str): The UUID of the quota to retrieve.
+
+        Returns:
+        List[dict]: The retrieved quota details.
+        """
+        response = requests.get(f'{self.api_server}/quotas/{uuid}', headers=self.headers)
+        self.raise_for_status(response=response)
+        logging.debug(f"GET Quotas Response : {response.json()}")
+        return response.json().get("results")
+
+    def update_quota(self, uuid: str, project_id: str, resource_type: str, resource_unit: str,
+                     quota_used: int = 0, quota_limit: int = 0):
+        """
+        Send a PUT request to update a quota by UUID.
+
+        Parameters:
+        uuid (str): The UUID of the quota to update.
+        project_id (str): The ID of the project to which the quota belongs.
+        resource_type (str): The type of resource (e.g., CPU, RAM).
+        resource_unit (str): The unit of the resource (e.g., cores, GB).
+        quota_used (int, optional): The amount of resource currently used. Defaults to 0.
+        quota_limit (int, optional): The limit for the resource. Defaults to 0.
+
+        Returns:
+        List[dict]: The updated quota details.
+        """
+        data = {
+            "project_id": project_id,
+            "resource_type": resource_type,
+            "resource_unit": resource_unit,
+            "quota_used": quota_used,
+            "quota_limit": quota_limit
+        }
+        response = requests.put(f'{self.api_server}/quotas/{uuid}', headers=self.headers, json=data)
+        self.raise_for_status(response=response)
+        logging.debug(f"PUT Quotas Response : {response.json()}")
+        return response.json().get("results")
+
+    def delete_quota(self, uuid: str):
+        """
+        Send a DELETE request to delete a quota by UUID.
+
+        Parameters:
+        uuid (str): The UUID of the quota to delete.
+
+        Returns:
+        """
+        response = requests.delete(f'{self.api_server}/quotas/{uuid}', headers=self.headers)
+        self.raise_for_status(response=response)
+        logging.debug(f"DEL Quotas Response : {response.json()}")
+
+    @staticmethod
+    def raise_for_status(response: requests.Response):
+        """
+        Checks the response status and raises an ArtifactManagerError if the request was unsuccessful.
+
+        :param response: The response object returned from the API request.
+        :raises ArtifactManagerError: If the response contains an HTTP error.
+        """
+        try:
+            response.raise_for_status()
+        except requests.HTTPError as e:
+            try:
+                message = response.json()
+            except json.JSONDecodeError:
+                message = {"message": "Unknown error occurred while processing the request."}
+
+            raise CoreApiError(f"Error {response.status_code}: {e}. Message: {message}")
