@@ -343,7 +343,7 @@ class CoreApi:
         logging.debug(f"GET Quotas Response : {response.json()}")
         return response.json().get("results")
 
-    def update_quota_usage(self, uuid: str, project_uuid: str, quota_used: int):
+    def update_quota_usage(self, uuid: str, project_uuid: str, quota_used: float):
         """
         Send a PUT request to update a quota usage by UUID.
 
@@ -374,7 +374,7 @@ class CoreApi:
         return response.json().get("results")
 
     def update_quota(self, uuid: str, project_uuid: str, resource_type: str, resource_unit: str,
-                     quota_used: int = 0, quota_limit: int = 0):
+                     quota_used: float = 0, quota_limit: float = 0):
         """
         Send a PUT request to update a quota by UUID.
 
