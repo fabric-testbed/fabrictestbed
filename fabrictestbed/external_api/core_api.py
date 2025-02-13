@@ -292,7 +292,7 @@ class CoreApi:
         Returns:
         List[dict]: A list of quota records.
         """
-        params = {"project_id": project_uuid,
+        params = {"project_uuid": project_uuid,
                   "offset": offset,
                   "limit": limit}
 
@@ -301,13 +301,13 @@ class CoreApi:
         logging.debug(f"GET Quotas Response : {response.json()}")
         return response.json().get("results")
 
-    def create_quota(self, project_id: str, resource_type: str, resource_unit: str,
+    def create_quota(self, project_uuid: str, resource_type: str, resource_unit: str,
                      quota_used: int = 0, quota_limit: int = 0) -> List[dict]:
         """
         Send a POST request to create a new quota.
 
         Parameters:
-        project_id (str): The ID of the project to which the quota belongs.
+        project_uuid (str): The ID of the project to which the quota belongs.
         resource_type (str): The type of resource (e.g., CPU, RAM).
         resource_unit (str): The unit of the resource (e.g., cores, GB).
         quota_used (int, optional): The amount of resource currently used. Defaults to 0.
@@ -317,7 +317,7 @@ class CoreApi:
         List[dict]: The created quota details.
         """
         data = {
-            "project_uuid": project_id,
+            "project_uuid": project_uuid,
             "resource_type": resource_type,
             "resource_unit": resource_unit,
             "quota_used": quota_used,
@@ -343,14 +343,44 @@ class CoreApi:
         logging.debug(f"GET Quotas Response : {response.json()}")
         return response.json().get("results")
 
-    def update_quota(self, uuid: str, project_id: str, resource_type: str, resource_unit: str,
+    def update_quota_usage(self, uuid: str, project_uuid: str, quota_used: int):
+        """
+        Send a PUT request to update a quota usage by UUID.
+
+        Parameters:
+        uuid (str): The UUID of the quota to update.
+        project_uuid (str): The ID of the project to which the quota belongs.
+        quota_used (int, optional): The amount of resource currently used.
+
+        Returns:
+        List[dict]: The updated quota details.
+        """
+        current_quota = self.get_quota(uuid=uuid)[0]
+
+        value = current_quota.get("quota_used") + quota_used
+        if value < 0:
+            value = 0
+
+        data = {
+            "project_uuid": project_uuid,
+            "resource_type": current_quota.get("resource_type"),
+            "resource_unit": current_quota.get("resource_unit"),
+            "quota_used": value,
+            "quota_limit": current_quota.get("quota_limit")
+        }
+        response = requests.put(f'{self.api_server}/quotas/{uuid}', headers=self.headers, json=data)
+        self.raise_for_status(response=response)
+        logging.debug(f"PUT Quotas Response : {response.json()}")
+        return response.json().get("results")
+
+    def update_quota(self, uuid: str, project_uuid: str, resource_type: str, resource_unit: str,
                      quota_used: int = 0, quota_limit: int = 0):
         """
         Send a PUT request to update a quota by UUID.
 
         Parameters:
         uuid (str): The UUID of the quota to update.
-        project_id (str): The ID of the project to which the quota belongs.
+        project_uuid (str): The ID of the project to which the quota belongs.
         resource_type (str): The type of resource (e.g., CPU, RAM).
         resource_unit (str): The unit of the resource (e.g., cores, GB).
         quota_used (int, optional): The amount of resource currently used. Defaults to 0.
@@ -360,7 +390,7 @@ class CoreApi:
         List[dict]: The updated quota details.
         """
         data = {
-            "project_uuid": project_id,
+            "project_uuid": project_uuid,
             "resource_type": resource_type,
             "resource_unit": resource_unit,
             "quota_used": quota_used,
@@ -409,17 +439,17 @@ if __name__ == '__main__':
     core_api = CoreApi(core_api_host="alpha-6.fabric-testbed.net", token=token)
 
     quotas = core_api.list_quotas(project_uuid=project_id)
-    print(f"Fetching quotas: {quotas}")
-
+    print(f"Fetching quotas: {json.dumps(quotas,indent=4)}")
+'''
     resources = ["core", "ram", "disk"]
     if len(quotas) == 0:
         for r in resources:
-            core_api.create_quota(project_id=project_id, resource_type=r, resource_unit="hours",
+            core_api.create_quota(project_uuid=project_id, resource_type=r, resource_unit="hours",
                                   quota_limit=100, quota_used=0)
             print(f"Created quota for {r}")
 
     for q in quotas:
-        core_api.update_quota(uuid=q.get("uuid"), project_id=q.get("project_uuid"),
+        core_api.update_quota(uuid=q.get("uuid"), project_uuid=q.get("project_uuid"),
                               quota_limit=q.get("quota_limit"), quota_used=q.get("quota_used") + 1,
                               resource_type=q.get("resource_type"),
                               resource_unit=q.get("resource_unit"))
@@ -434,5 +464,6 @@ if __name__ == '__main__':
     print(f"Quotas after deletion!: {quotas}")
 
 
-    #core_api.create_quota(project_id="74a5b28b-c1a2-4fad-882b-03362dddfa71",
+    #core_api.create_quota(project_uuid="74a5b28b-c1a2-4fad-882b-03362dddfa71",
     #                      resource_type="disk", resource_unit="hours", quota_limit=100)
+'''
