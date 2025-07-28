@@ -244,8 +244,8 @@ class SliceManager(TokenManager):
             return Status.FAILURE, SliceManagerException(error_message)
 
     def poa(self, *, sliver_id: str, operation: str, vcpu_cpu_map: List[Dict[str, str]] = None,
-            node_set: List[str] = None,
-            keys: List[Dict[str, str]] = None) -> Tuple[Status, Union[SliceManagerException, List[PoaData]]]:
+            node_set: List[str] = None, keys: List[Dict[str, str]] = None,
+            bdf: List[Dict[str, str]] = None) -> Tuple[Status, Union[SliceManagerException, List[PoaData]]]:
         """
         Issue POA for a sliver
         @param sliver_id sliver Id for which to trigger POA
@@ -253,6 +253,7 @@ class SliceManager(TokenManager):
         @param vcpu_cpu_map list of mappings from virtual CPU to physical cpu
         @param node_set list of the numa nodes
         @param keys list of keys to add/remove
+        @param bdf list of pci ids to rescan
         @return Tuple containing Status and POA information
        """
         if sliver_id is None or operation is None:
@@ -260,7 +261,7 @@ class SliceManager(TokenManager):
 
         try:
             return self.oc_proxy.poa(token=self.ensure_valid_token(), sliver_id=sliver_id, operation=operation,
-                                     vcpu_cpu_map=vcpu_cpu_map, node_set=node_set, keys=keys)
+                                     vcpu_cpu_map=vcpu_cpu_map, node_set=node_set, keys=keys, bdf=bdf)
 
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
