@@ -38,7 +38,7 @@ and consistently uses ``ensure_valid_id_token()`` to obtain a usable bearer toke
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import os
 from typing import Tuple, Union, List, Optional, Dict
 
@@ -419,6 +419,10 @@ class SliceManager(TokenManager):
         """
         if not slice_id or not isinstance(slice_id, str):
             return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_id")
+
+        if not lifetime:
+            new_end = datetime.now(timezone.utc) + timedelta(hours=lifetime)
+            lease_end_time = new_end.strftime("%Y-%m-%d %H:%M:%S %z")
 
         if lease_end_time is not None and not isinstance(lease_end_time, str):
             return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - lease_end_time")

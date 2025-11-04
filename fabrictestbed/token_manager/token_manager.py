@@ -54,7 +54,7 @@ from __future__ import annotations
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Tuple, Union, List, Dict, Any
 
 from fabric_cm.credmgr.credmgr_proxy import CredmgrProxy, Status
@@ -63,6 +63,8 @@ from fabrictestbed.slice_manager import CmStatus
 from fabrictestbed.util.constants import Constants
 from fabrictestbed.util.utils import Utils
 
+class TokenManagerException(Exception):
+    pass
 
 class TokenManager:
     """
@@ -222,7 +224,7 @@ class TokenManager:
         created_at = self.tokens.get("created_at")
         if created_at:
             try:
-                return Utils.parse_datetime(created_at)
+                return datetime.strptime(created_at, CredmgrProxy.TIME_FORMAT)
             except Exception:
                 pass
 
@@ -230,7 +232,30 @@ class TokenManager:
             claims = Utils.decode_token(cm_host=self.cm_host, token=self.get_id_token()) or {}
             iat = claims.get("iat")
             if iat:
-                return datetime.utcfromtimestamp(int(iat))
+                return datetime.fromtimestamp(int(iat), timezone.utc)
+        except Exception:
+            pass
+        return None
+
+    def id_token_expires_at(self) -> Optional[datetime]:
+        """
+        Return when the ID token was issued, if determinable.
+
+        :return: Datetime of issuance or ``None`` if unavailable.
+        :rtype: datetime or None
+        """
+        expires_at = self.tokens.get("expires_at")
+        if expires_at:
+            try:
+                return datetime.strptime(expires_at, CredmgrProxy.TIME_FORMAT)
+            except Exception:
+                pass
+
+        try:
+            claims = Utils.decode_token(cm_host=self.cm_host, token=self.get_id_token()) or {}
+            exp = claims.get("exp")
+            if exp:
+                return datetime.fromtimestamp(int(exp), timezone.utc)
         except Exception:
             pass
         return None
@@ -357,7 +382,7 @@ class TokenManager:
             claims = Utils.decode_token(cm_host=self.cm_host, token=tok) or {}
             exp = claims.get("exp")
             if exp is not None:
-                if datetime.utcnow().timestamp() >= int(exp) - 60:
+                if datetime.now(timezone.utc) >= (self.id_token_expires_at() - timedelta(minutes=30)):
                     rtok = self.get_refresh_token()
                     if rtok:
                         self.refresh_tokens(refresh_token=rtok)
