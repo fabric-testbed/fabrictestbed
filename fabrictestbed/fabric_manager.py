@@ -49,8 +49,7 @@ from fabrictestbed.external_api.artifact_manager import ArtifactManager, Visibil
 from fabrictestbed.util.utils import Utils
 from fabrictestbed.util.constants import Constants
 
-# IMPORTANT: use your updated local SliceManager (MCP-friendly) rather than the SDK's class.
-from slice_manager import SliceManager
+from fabrictestbed.slice_manager import SliceManager
 
 
 class FabricManagerException(Exception):
