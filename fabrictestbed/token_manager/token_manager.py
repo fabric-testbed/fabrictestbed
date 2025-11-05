@@ -98,6 +98,9 @@ class TokenManager:
     :type refresh_token: str or None
     :param no_write: If True, suppress file writes (for MCP usage)
     :type no_write: bool
+    :param auto_refresh: (Optional) A flag indicating whether the token should be automatically refreshed
+                              when it expires. Defaults to True.
+    :type no_write: bool
 
     :raises TokenManagerException: on refresh or token handling failures
     """
@@ -115,6 +118,7 @@ class TokenManager:
         id_token: Optional[str] = None,
         refresh_token: Optional[str] = None,
         no_write: bool = False,
+        auto_refresh: bool = True,
     ):
         self.cm_host = cm_host
         self.scope = scope
@@ -124,6 +128,7 @@ class TokenManager:
         self.user_email = user_email
         self.token_location = token_location
         self.no_write = no_write
+        self.auto_refresh = auto_refresh
         self.cm_proxy = CredmgrProxy(credmgr_host=cm_host)
         self.tokens: Dict[str, Any] = {}
 
@@ -264,6 +269,40 @@ class TokenManager:
     # Token lifecycle
     # ------------------------------------------------------------------
 
+    def create_token(self,
+                     scope: str = "all",
+                     project_id: str = None,
+                     project_name: str = None,
+                     file_name: str = None,
+                     life_time_in_hours: int = 4,
+                     comment: str = "Created via API",
+                     browser_name: str = "chrome"
+                     ) -> Tuple[Status, Union[dict, TokenManagerException]]:
+        """
+        Create token
+        @param project_id: Project Id
+        @param project_name: Project Name
+        @param scope: scope
+        @param file_name: File name
+        @param life_time_in_hours: Token lifetime in hours
+        @param comment: comment associated with the token
+        @param browser_name: Browser name; allowed values: chrome, firefox, safari, edge
+        @returns Tuple of Status, token json or Exception
+        @raises Exception in case of failure
+        """
+        try:
+            return self.cm_proxy.create(scope=scope,
+                                        project_id=project_id,
+                                        project_name=project_name,
+                                        file_name=file_name,
+                                        life_time_in_hours=life_time_in_hours,
+                                        comment=comment,
+                                        browser_name=browser_name)
+        except Exception as e:
+            error_message = Utils.extract_error_message(exception=e)
+            return Status.FAILURE, TokenManagerException(error_message)
+
+
     def refresh_tokens(self, *, refresh_token: str) -> Tuple[str, str]:
         """
         Refresh the tokens via Credential Manager.
@@ -378,15 +417,14 @@ class TokenManager:
         tok = self.get_id_token()
         if not tok:
             raise TokenManagerException("No id_token available. Provide id_token or configure token file.")
-        try:
-            claims = Utils.decode_token(cm_host=self.cm_host, token=tok) or {}
-            exp = claims.get("exp")
-            if exp is not None:
-                if datetime.now(timezone.utc) >= (self.id_token_expires_at() - timedelta(minutes=30)):
-                    rtok = self.get_refresh_token()
-                    if rtok:
-                        self.refresh_tokens(refresh_token=rtok)
-                        return self.get_id_token()
-        except Exception:
-            pass
+        if self.auto_refresh:
+            if datetime.now(timezone.utc) >= (self.id_token_expires_at() - timedelta(minutes=30)):
+                rtok = self.get_refresh_token()
+                if rtok:
+                    self.refresh_tokens(refresh_token=rtok)
+                    return self.get_id_token()
+        else:
+            if datetime.now(timezone.utc) >= self.id_token_expires_at():
+                raise TokenManagerException("Token expired")
+
         return tok
