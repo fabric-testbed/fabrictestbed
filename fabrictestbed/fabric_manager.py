@@ -159,7 +159,7 @@ class FabricManager(SliceManager):
         *,
         key_type: str,
         description: str,
-        comment: str,
+        comment: str = "ssh-key-via-api",
         store_pubkey: bool = True,
     ) -> list:
         """
@@ -193,21 +193,23 @@ class FabricManager(SliceManager):
     # User / Project Info (Core API)
     # -------------------------------------------------------------------------
 
-    def get_user_info(self, *, email: str) -> dict:
+    def get_user_info(self, *, uuid: str = None, email: str = None) -> dict:
         """
-        Retrieve user info by email.
+        Retrieve user info by email or uuid.
 
+        :param uuid: User's uuid.
+        :type uuid: str
         :param email: User's email address.
         :type email: str
         :return: User info dict (shape per Core API).
         :rtype: dict
         :raises FabricManagerException: On Core API errors.
         """
-        if not email:
-            raise FabricManagerException("email must be provided")
+        if not email and not uuid:
+            raise FabricManagerException("email or uuid must be provided")
         try:
             core_api_proxy = CoreApi(core_api_host=self.core_api_host, token=self.ensure_valid_id_token())
-            return core_api_proxy.get_user_info_by_email(email=email)
+            return core_api_proxy.get_user_info(uuid=uuid, email=email)
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
             raise FabricManagerException(error_message)
@@ -227,23 +229,25 @@ class FabricManager(SliceManager):
             error_message = Utils.extract_error_message(exception=e)
             raise FabricManagerException(error_message)
 
-    def get_project_info(self, *, project_name: str, uuid: Optional[str] = None) -> list:
+    def get_project_info(self, *, project_name: str = "all", project_id: str = "all", uuid: Optional[str] = None) -> list:
         """
         Retrieve project info for the current user.
 
         :param project_name: Project name filter (exact match in most deployments).
         :type project_name: str
+        :param project_id: Project id filter (exact match in most deployments).
+        :type project_id: str
         :param uuid: Optional user UUID; if omitted, the Core API may infer current user.
         :type uuid: str or None
         :return: List of matching project records (shape per Core API).
         :rtype: list
         :raises FabricManagerException: On Core API errors.
         """
-        if not project_name:
-            raise FabricManagerException("project_name must be provided")
+        if not project_name and not project_id:
+            raise FabricManagerException("project_name or project_id must be provided")
         try:
             core_api_proxy = CoreApi(core_api_host=self.core_api_host, token=self.ensure_valid_id_token())
-            return core_api_proxy.get_user_projects(uuid=uuid, project_name=project_name)
+            return core_api_proxy.get_user_projects(uuid=uuid, project_name=project_name, project_id=project_id)
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
             raise FabricManagerException(error_message)
@@ -404,7 +408,10 @@ class FabricManager(SliceManager):
             error_message = Utils.extract_error_message(exception=e)
             raise FabricManagerException(error_message)
 
-    def upload_file_to_artifact(self, file_to_upload: str, artifact_id: str = None, artifact_title: str = None) -> dict:
+    def upload_file_to_artifact(self,
+                                file_to_upload: str,
+                                artifact_id: str = None,
+                                artifact_title: str = None) -> dict:
         """
         Upload a file as a new artifact version.
 

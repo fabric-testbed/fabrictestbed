@@ -44,13 +44,11 @@ from typing import Tuple, Union, List, Optional, Dict
 
 from fabrictestbed.slice_editor import ExperimentTopology, AdvertisedTopology, GraphFormat
 from fabrictestbed.slice_manager import OrchestratorProxy, Status, SliceState
-# If your SDK exposes these under a different module, adjust as needed:
 from fabrictestbed.slice_manager import Slice, Sliver, PoaData
 
 from fabrictestbed.util.constants import Constants
 from fabrictestbed.util.utils import Utils
 
-# Import your updated TokenManager
 from fabrictestbed.token_manager.token_manager import TokenManager
 
 
@@ -243,16 +241,16 @@ class SliceManager(TokenManager):
             error_message = Utils.extract_error_message(exception=e)
             return Status.FAILURE, SliceManagerException(error_message)
 
-    def delete(self, *, slice_id: str) -> Tuple[Status, Union[SliceManagerException, Exception, str]]:
+    def delete(self, *, slice_id: str = None) -> Tuple[Status, Union[SliceManagerException, Exception, str]]:
         """
         Delete a slice.
 
-        :param slice_id: Slice UUID to delete.
+        :param slice_id: Slice UUID to delete. If not specified, all slices will be deleted.
         :type slice_id: str
         :return: ``(Status, message)`` on success, or ``(Status.FAILURE, SliceManagerException)``.
         :rtype: tuple(Status, Union[SliceManagerException, str])
         """
-        if not slice_id or not isinstance(slice_id, str):
+        if slice_id and not isinstance(slice_id, str):
             return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_id")
 
         try:
@@ -318,12 +316,19 @@ class SliceManager(TokenManager):
             error_message = Utils.extract_error_message(exception=e)
             return Status.FAILURE, SliceManagerException(error_message)
 
-    def get_slice_topology(self, *, slice_id: str) -> Tuple[Status, Union[SliceManagerException, ExperimentTopology]]:
+    def get_slice_topology(self, *, slice_id: str,
+                           graph_format: GraphFormat = GraphFormat.GRAPHML,
+                           as_self: bool = True
+                           ) -> Tuple[Status, Union[SliceManagerException, ExperimentTopology]]:
         """
         Get the experiment topology for a slice.
 
         :param slice_id: Target slice UUID.
         :type slice_id: str
+        :param as_self: If ``True``, query as current user.
+        :type as_self: bool
+        :param graph_format: Format for any inlined graph data (default: ``GRAPHML``).
+        :type graph_format: GraphFormat
         :return: ``(Status, ExperimentTopology)`` or ``(Status.FAILURE, SliceManagerException)``.
         :rtype: tuple(Status, Union[SliceManagerException, ExperimentTopology])
         """
@@ -334,6 +339,8 @@ class SliceManager(TokenManager):
             return self.oc_proxy.get_slice(
                 token=self.ensure_valid_id_token(),
                 slice_id=slice_id,
+                graph_format=graph_format,
+                as_self=as_self,
             )
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
@@ -369,8 +376,10 @@ class SliceManager(TokenManager):
             return Status.FAILURE, SliceManagerException(error_message)
 
     def resources(self, *,
-                  level: int = 1, force_refresh: bool = False,
-                  start: datetime = None, end: datetime = None,
+                  level: int = 1,
+                  force_refresh: bool = False,
+                  start: datetime = None,
+                  end: datetime = None,
                   includes: List[str] = None,
                   excludes: List[str] = None
                   ) -> Tuple[Status, Union[SliceManagerException, AdvertisedTopology]]:
@@ -420,7 +429,7 @@ class SliceManager(TokenManager):
         if not slice_id or not isinstance(slice_id, str):
             return Status.INVALID_ARGUMENTS, SliceManagerException("Invalid arguments - slice_id")
 
-        if not lifetime:
+        if lifetime:
             new_end = datetime.now(timezone.utc) + timedelta(hours=lifetime)
             lease_end_time = new_end.strftime("%Y-%m-%d %H:%M:%S %z")
 

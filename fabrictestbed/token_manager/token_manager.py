@@ -57,7 +57,7 @@ import os
 from datetime import datetime, timezone, timedelta
 from typing import Optional, Tuple, Union, List, Dict, Any
 
-from fabric_cm.credmgr.credmgr_proxy import CredmgrProxy, Status
+from fabric_cm.credmgr.credmgr_proxy import CredmgrProxy, Status, TokenType
 
 from fabrictestbed.slice_manager import CmStatus
 from fabrictestbed.util.constants import Constants
@@ -190,10 +190,12 @@ class TokenManager:
             except Exception as e:
                 logging.warning(f"Failed to read token file {self.token_location}: {e}")
                 self.tokens = {}
+            refresh_token = self.get_refresh_token()
         else:
             refresh_token = os.environ.get(Constants.CILOGON_REFRESH_TOKEN)
-            if refresh_token:
-                self.tokens[CredmgrProxy.REFRESH_TOKEN] = refresh_token
+         # Renew the tokens to ensure any project_id changes are taken into account
+        if refresh and self.auto_refresh and refresh_token:
+            self.refresh_tokens(refresh_token=refresh_token)
 
     def _extract_project_and_user_info_from_token(self, cm_host: str) -> None:
         """
@@ -341,6 +343,7 @@ class TokenManager:
         refresh_token: str = None,
         id_token: str = None,
         token_hash: str = None,
+        token_type: TokenType = TokenType.Refresh
     ) -> Tuple[Status, Union[TokenManagerException, str]]:
         """
         Revoke a token using the Credential Manager.
@@ -351,6 +354,8 @@ class TokenManager:
         :type id_token: str or None
         :param token_hash: Precomputed SHA-256 hash (optional)
         :type token_hash: str or None
+        :param token_type type of the token being revoked
+        :type token_type: TokenType or None
         :return: (Status, message_or_exception)
         :rtype: tuple(Status, Union[TokenManagerException, str])
         """
@@ -363,6 +368,7 @@ class TokenManager:
                 refresh_token=refresh_token,
                 identity_token=id_token,
                 token_hash=token_hash,
+                token_type=token_type,
             )
         except Exception as e:
             msg = Utils.extract_error_message(exception=e)
@@ -387,7 +393,7 @@ class TokenManager:
     # Utilities
     # ------------------------------------------------------------------
 
-    def clear_token_cache(self, *, file_name: Optional[str] = None) -> None:
+    def clear_token_cache(self, *, file_name: Optional[str] = None) -> Tuple[Status, Any]:
         """
         Clear in-memory tokens and optionally remove the token file.
 
@@ -397,11 +403,10 @@ class TokenManager:
         self.tokens = {}
         if not self.no_write:
             path = file_name or self.token_location
-            if path and os.path.exists(path):
-                try:
-                    os.remove(path)
-                except Exception as e:
-                    logging.debug(f"Failed to remove token file {path}: {e}")
+            status, exception = self.cm_proxy.clear_token_cache(file_name=path)
+            if status == CmStatus.OK:
+                return Status.OK, None
+        return Status.FAILURE, f"Failed to clear token cache:"
 
     def ensure_valid_id_token(self) -> str:
         """
