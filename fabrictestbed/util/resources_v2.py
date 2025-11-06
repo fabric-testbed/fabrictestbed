@@ -2,53 +2,57 @@
 # MIT License
 #
 # ResourcesV2: fast, typed, lazy index over FIM AdvertizedTopology
-# providing normalized views for sites, hosts, facility ports, and links.
 #
 # Author: Komal Thareja (kthare10@renci.org)
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from fim.user.topology import AdvertizedTopology
-from fim.user import interface, link
+from fim.user import link
 
-
-from fabrictestbed.util.site_v2 import SiteV2, HostInfo, ComponentInfo, FacilityPortInfo, LinkInfo, LinkEndpoint, \
+from fabrictestbed.util.site_v2 import (
+    SiteV2, HostInfo, FacilityPortInfo, LinkInfo, LinkEndpoint,
     load_site, SwitchInfo
+)
 
 
 @dataclass
 class ResourcesV2:
-    """
-    A robust, normalized index over a FIM AdvertizedTopology (or compatible dict).
-    - Fast lookups by site/host
-    - Safe getattr with defensive fallbacks
-    - Minimal assumptions about exact FIM internals; relies on common attributes
-    """
+    """Normalized, high-performance index over a FIM AdvertizedTopology."""
     topology: AdvertizedTopology
-    _sites: Dict[str, SiteV2] = field(default_factory=dict, init=False, repr=False)
 
-    # Internal caches
+    _sites: Dict[str, SiteV2] = field(default_factory=dict, init=False, repr=False)
     _hosts_by_site: Dict[str, Dict[str, HostInfo]] = field(default_factory=dict, init=False, repr=False)
     _switches_by_site: Dict[str, Dict[str, SwitchInfo]] = field(default_factory=dict, init=False, repr=False)
-    _facility_ports_by_site: Dict[str, Dict[str, FacilityPortInfo]] = field(default_factory=dict, init=False,
-                                                                            repr=False)
-    _links_by_site: Dict[str, List[LinkInfo]] = field(default_factory=dict, init=False, repr=False)
 
+    # Lazy caches
+    _facility_ports_by_site: Optional[Dict[str, Dict[str, FacilityPortInfo]]] = field(default=None, init=False, repr=False)
+    _node_index: Optional[Dict[str, Tuple[str, str]]] = field(default=None, init=False, repr=False)
+    _links_by_site_idx: Optional[Dict[str, List[int]]] = field(default=None, init=False, repr=False)
+    _all_links: Optional[List[LinkInfo]] = field(default=None, init=False, repr=False)
+
+    # -----------------------------------------------------
     def __post_init__(self) -> None:
-        self._index_everything()
+        self._index_sites()
 
-    # ----------------------------
-    # Public API
-    # ----------------------------
+    # -----------------------------------------------------
     @property
     def sites(self) -> Mapping[str, SiteV2]:
         return self._sites
 
     def get_site(self, name: str) -> Optional[SiteV2]:
-        return self._sites.get(name)
+        s = self._sites.get(name)
+        if not s:
+            return None
+        s._hosts_index = self._hosts_by_site.get(name, {})
+        if self._facility_ports_by_site:
+            s._facility_ports_index = self._facility_ports_by_site.get(name, {})
+        if self._links_by_site_idx and self._all_links:
+            s._links_index = {name: [self._all_links[i] for i in self._links_by_site_idx.get(name, [])]}
+        return s
 
     def list_site_names(self) -> List[str]:
         return list(self._sites.keys())
@@ -60,139 +64,113 @@ class ResourcesV2:
         return out
 
     def list_facility_ports(self) -> List[FacilityPortInfo]:
+        self._ensure_facility_ports()
         out: List[FacilityPortInfo] = []
         for fps in self._facility_ports_by_site.values():
             out.extend(fps.values())
         return out
 
     def list_links(self) -> List[LinkInfo]:
-        out: List[LinkInfo] = []
-        for links in self._links_by_site.values():
-            out.extend(links)
-        # Deduplicate by (name, endpoints) if some links are visible at multiple sites
-        seen = set()
-        deduped: List[LinkInfo] = []
-        for l in out:
-            # Sort endpoints for consistent key
-            endpoints_key = tuple(sorted((e.site, e.node, e.port) for e in l.endpoints))
-            key = (l.name, endpoints_key)
-            if key not in seen:
-                seen.add(key)
-                deduped.append(l)
-        return deduped
+        self._ensure_links()
+        return list(self._all_links or [])
 
-    # ----------------------------
+    # -----------------------------------------------------
     # Indexing helpers
-    # ----------------------------
-    def _index_everything(self) -> None:
-        """
-        Build indices for sites, hosts, facility ports, and links.
-        Tries both wrapper-friendly access and FIM-native access.
-        """
-        self._index_sites()
-        self._index_facility_ports()
-        self._index_links()
-        # Bind indices back to SiteV2 objects for convenience access
-        for site_name, site in self._sites.items():
-            site._hosts_index = self._hosts_by_site.get(site_name, {})
-            site._facility_ports_index = self._facility_ports_by_site.get(site_name, {})
-            site._links_index = {site_name: self._links_by_site.get(site_name, [])}
-
+    # -----------------------------------------------------
     def _index_sites(self) -> None:
-        """
-        Load SiteV2 objects from the topology's sites.
-        """
-        sites_dict = self.topology.sites
-        for site_name, site in sites_dict.items():
+        for site_name, site in self.topology.sites.items():
             loaded_site, hosts, switches = load_site(site)
-            if len(hosts) == 0:
+            if not hosts:
                 continue
+
+            # Store in master dicts
             self._sites[site_name] = loaded_site
-            # The loaded_site has a 'hosts' attribute from load_site; extract it for the main index
             self._hosts_by_site[site_name] = hosts
             self._switches_by_site[site_name] = switches
 
-    def _index_facility_ports(self) -> None:
-        """
-        Build index of facility ports from the topology's facilities.
-        """
-        self._facility_ports_by_site.clear()
+            # HYDRATE the SiteV2 so it’s self-contained
+            loaded_site._hosts_index = hosts
+            loaded_site._switches_index = switches
+            # facility ports / links remain lazy; they’ll be attached later on demand
 
+    def _ensure_facility_ports(self) -> None:
+        if self._facility_ports_by_site is not None:
+            return
+        fps_by_site: Dict[str, Dict[str, FacilityPortInfo]] = {}
         for fp in self.topology.facilities.values():
             site_name = fp.site
-            if site_name not in self._facility_ports_by_site:
-                self._facility_ports_by_site[site_name] = {}
-
+            site_bucket = fps_by_site.setdefault(site_name, {})
             for iface in fp.interface_list:
-                # Assuming iface is a fim.user.interface.Interface
-                # Determine VLANS
+                labs = getattr(iface, "labels", None)
                 vlan_range = None
-                if iface.labels and iface.labels.vlan_range:
-                    vlan_range = str(iface.labels.vlan_range)
-                elif iface.labels and iface.labels.vlan:
-                    vlan_range = str([iface.labels.vlan])
+                if labs:
+                    vr = getattr(labs, "vlan_range", None)
+                    if vr:
+                        vlan_range = str(vr)
+                    else:
+                        v = getattr(labs, "vlan", None)
+                        if v is not None:
+                            vlan_range = str([v])
 
-                facility_port_info = FacilityPortInfo(
+                site_bucket[fp.name] = FacilityPortInfo(
                     site=site_name,
                     name=fp.name,
-                    port=iface.name,  # Using interface name as port name, or could use local_name/device_name
-                    switch=iface.node_id,  # The node_id of the interface is the switch's node_id
-                    labels=iface.labels.to_dict() if iface.labels else None,
+                    port=getattr(iface, "name", None),
+                    switch=getattr(iface, "node_id", None),
+                    labels=labs,
                     vlans=vlan_range,
                 )
+        self._facility_ports_by_site = fps_by_site
 
-                # Use the unique facility name (fp.name) as the primary key for the port
-                self._facility_ports_by_site[site_name][fp.name] = facility_port_info
+    def _build_node_index(self) -> None:
+        if self._node_index is not None:
+            return
+        idx: Dict[str, Tuple[str, str]] = {}
+        for site_name, site in self.topology.sites.items():
+            for node_name, child in getattr(site, "children", {}).items():
+                node_id = getattr(child, "node_id", None)
+                if node_id:
+                    idx[node_id] = (site_name, node_name)
+        self._node_index = idx
 
-    def _index_links(self) -> None:
-        """
-        Build index of links from the topology's links.
-        """
-        self._links_by_site.clear()
+    def _ensure_links(self) -> None:
+        if self._all_links is not None:
+            return
+        self._build_node_index()
+        node_idx = self._node_index
 
-        for _, l in self.topology.links.items():
-            link_info = self._link_to_linkinfo(l)
-            if link_info:
-                # Distribute the link_info to the sites it touches
-                for endpoint in link_info.endpoints:
-                    if endpoint.site:
-                        if endpoint.site not in self._links_by_site:
-                            self._links_by_site[endpoint.site] = []
-                        self._links_by_site[endpoint.site].append(link_info)
+        all_links: List[LinkInfo] = []
+        site_to_indices: Dict[str, List[int]] = {}
 
-    def _link_to_linkinfo(self, l: link.Link) -> Optional[LinkInfo]:
-        """Convert a FIM Link object into a LinkInfo dataclass."""
-        endpoints = []
-        for iface in l.interface_list:
-            # Extract site/node/port from the interface
-            # Note: FIM interfaces on links often only have node_id/name.
-            # We must derive site and node from the overall topology if needed,
-            # but for simplicity, we use the name components if available.
+        for _, L in self.topology.links.items():
+            endpoints: List[LinkEndpoint] = []
+            for iface in L.interface_list:
+                site_name, node_name = (None, None)
+                if node_idx and getattr(iface, "node_id", None) in node_idx:
+                    site_name, node_name = node_idx[iface.node_id]
 
-            # Common FABRIC Link Interface naming: site_node_port
-            parts = iface.name.split('_')
-            site_name = parts[0] if len(parts) >= 1 else None
-            node_name = parts[1] if len(parts) >= 2 else None
-            port_name = parts[-1] if len(parts) >= 3 else None
+                labs = getattr(iface, "labels", None)
+                port = getattr(labs, "local_name", None) or getattr(labs, "device_name", None)
+                port = port or getattr(iface, "name", None)
 
-            # Fallback/refinement: iface.node_id is often the node's FIM ID,
-            # and iface.labels.local_name/device_name can be the port.
-            if site_name not in self.topology.sites:
-                # Try to get the site from the node_id
-                # This requires a deeper search into the topology which is costly.
-                # Assuming the name is canonical (site_node_port) for now.
-                pass
+                endpoints.append(LinkEndpoint(
+                    site=site_name,
+                    node=node_name or getattr(iface, "node_id", None),
+                    port=port
+                ))
 
-            endpoints.append(LinkEndpoint(
-                site=site_name,
-                node=node_name or iface.node_id,
-                port=port_name or iface.name
-            ))
+            li = LinkInfo(
+                name=getattr(L, "node_id", None),
+                layer=str(getattr(L, "layer", None)) if getattr(L, "layer", None) else None,
+                labels=getattr(L, "labels", None),
+                bandwidth=getattr(getattr(L, "capacities", None), "bw", None),
+                endpoints=endpoints,
+            )
+            idx = len(all_links)
+            all_links.append(li)
+            for ep in endpoints:
+                if ep.site:
+                    site_to_indices.setdefault(ep.site, []).append(idx)
 
-        return LinkInfo(
-            name=l.node_id,  # Link's node_id is its FIM name
-            layer=str(l.layer) if l.layer else None,
-            labels=l.labels.to_dict() if l.labels else None,
-            bandwidth=l.capacities.bw if l.capacities else None,
-            endpoints=endpoints
-        )
+        self._all_links = all_links
+        self._links_by_site_idx = site_to_indices
