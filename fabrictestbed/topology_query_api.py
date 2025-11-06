@@ -13,6 +13,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Union, Literal
 from fim.user.topology import AdvertizedTopology
 
 from fabrictestbed.external_api.orchestrator_client import OrchestratorClient
+from fabrictestbed.slice_editor import GraphFormat
 from fabrictestbed.util.resources_v2 import ResourcesV2
 
 Record = Dict[str, Any]
@@ -169,8 +170,24 @@ class TopologyQueryAPI:
         fim_topo = self.resources(id_token=id_token, level=level, return_fmt="dto")
         return fim_topo
 
+    def _get_public_resources_topology(self, *, level: int = 1):
+        fim_topo = self.portal_resources(graph_format="GRAPHML", level=level, return_fmt="dto")
+        return fim_topo
+
+    def _get_public_resources_v2(self, *, level: int = 1):
+        topo = self._get_public_resources_topology(level=level)
+        try:
+            topo = ResourcesV2(topology=topo)
+        except Exception:
+            traceback.print_exc()
+            pass
+        return topo
+
     def _resources_v2(self, *, id_token: str, level: int = 1):
-        topo = self._get_resources_topology(id_token=id_token, level=level)
+        if id_token is None:
+            topo = self._get_public_resources_v2(level=level)
+        else:
+            topo = self._get_resources_topology(id_token=id_token, level=level)
         try:
             topo = ResourcesV2(topology=topo)
         except Exception:

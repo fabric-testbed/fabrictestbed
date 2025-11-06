@@ -139,6 +139,7 @@ class SiteV2:
     _links_index: Mapping[str, List[LinkInfo]] = field(default_factory=dict, repr=False)
     _switches_index: Mapping[str, SwitchInfo] = field(default_factory=dict, repr=False)
 
+    # Accessors
     def get_hosts(self) -> List[HostInfo]:
         return list(self._hosts_index.values())
 
@@ -167,10 +168,30 @@ class SiteV2:
         alloc = sum(h.disk_allocated or 0 for h in self._hosts_index.values())
         return cap, alloc
 
+    def aggregate_components(self) -> Dict[str, Dict[str, Optional[int]]]:
+        """
+        Sum component capacity/allocated across all hosts by component model.
+        Returns: { "<model>": {"capacity": int, "allocated": int, "available": int} }
+        """
+        agg: Dict[str, Dict[str, int]] = {}
+        for h in self._hosts_index.values():
+            for model, comp in (h.components or {}).items():
+                entry = agg.setdefault(model, {"capacity": 0, "allocated": 0})
+                entry["capacity"] += comp.capacity or 0
+                entry["allocated"] += comp.allocated or 0
+        # add available
+        for model, vals in agg.items():
+            cap = vals.get("capacity") or 0
+            alloc = vals.get("allocated") or 0
+            vals["available"] = max(0, cap - alloc)
+        return agg
+
     def to_summary(self) -> Dict[str, Any]:
         cores_cap, cores_alloc = self.aggregate_cores()
         ram_cap, ram_alloc = self.aggregate_ram()
         disk_cap, disk_alloc = self.aggregate_disk()
+        components = self.aggregate_components()
+
         return {
             "name": self.name,
             "state": self.state,
@@ -178,16 +199,22 @@ class SiteV2:
             "location": self.location,
             "ptp_capable": self.ptp_capable,
             "ipv4_management": self.ipv4_management,
+
             "cores_capacity": cores_cap,
             "cores_allocated": cores_alloc,
             "cores_available": max(0, cores_cap - cores_alloc),
+
             "ram_capacity": ram_cap,
             "ram_allocated": ram_alloc,
             "ram_available": max(0, ram_cap - ram_alloc),
+
             "disk_capacity": disk_cap,
             "disk_allocated": disk_alloc,
             "disk_available": max(0, disk_cap - disk_alloc),
-            "hosts": list(self._hosts_index.keys()),
+
+            # NEW: aggregate components, and host count instead of names
+            "components": components,              # {model: {capacity, allocated, available}}
+            "hosts_count": len(self._hosts_index), # integer
         }
 
 

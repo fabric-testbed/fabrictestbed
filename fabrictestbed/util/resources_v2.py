@@ -11,7 +11,6 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from fim.user.topology import AdvertizedTopology
-from fim.user import link
 
 from fabrictestbed.util.site_v2 import (
     SiteV2, HostInfo, FacilityPortInfo, LinkInfo, LinkEndpoint,
