@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import time
 
 from typing import Any, Dict, List, Literal, Optional, Union
 
@@ -193,3 +195,26 @@ class FabricManagerV2(TopologyQueryAPI):
         return self.orch.get_poas(
             token=id_token, sliver_id=sliver_id, poa_id=poa_id, limit=limit, offset=offset, return_fmt=return_fmt
         )
+
+
+
+if __name__ == "__main__":
+    id_token = ""
+    mgr = FabricManagerV2(credmgr_host="cm.fabric-testbed.net",
+                          orchestrator_host="orchestrator.fabric-testbed.net",)
+    '''
+    start = time.perf_counter()
+    sites = mgr.query_sites(id_token=id_token)
+    print(json.dumps(sites, indent=2))
+    print("Query sites time:", time.perf_counter() - start)
+    
+
+    start = time.perf_counter()
+    hosts = mgr.query_hosts(id_token=id_token)
+    print(json.dumps(hosts, indent=2))
+    print("Query hosts time:", time.perf_counter() - start)
+    '''
+    start = time.perf_counter()
+    fps = mgr.query_facility_ports(id_token=id_token)
+    print(json.dumps(fps, indent=2))
+    print("Query Facility Ports time:", time.perf_counter() - start)

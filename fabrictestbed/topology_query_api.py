@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
+import traceback
 from typing import Any, Callable, Dict, Iterable, List, Optional, Union, Literal
 
 from fim.user.topology import AdvertizedTopology
@@ -164,28 +165,29 @@ class TopologyQueryAPI:
             return_fmt=return_fmt,
         )
 
-    def _get_resources_topology(self, *, id_token: str):
-        fim_topo = self.resources(id_token=id_token, return_fmt="dto")
+    def _get_resources_topology(self, *, id_token: str, level: int = 1):
+        fim_topo = self.resources(id_token=id_token, level=level, return_fmt="dto")
         return fim_topo
 
-    def _resources_v2(self, *, id_token: str):
-        topo = self._get_resources_topology(id_token=id_token)
+    def _resources_v2(self, *, id_token: str, level: int = 1):
+        topo = self._get_resources_topology(id_token=id_token, level=level)
         try:
             topo = ResourcesV2(topology=topo)
         except Exception:
+            traceback.print_exc()
             pass
         return topo
 
     def query_sites(self, *, id_token: str, filters: Optional[FilterSpec] = None,
                     limit: Optional[int] = None, offset: int = 0) -> List[Record]:
-        res = self._resources_v2(id_token=id_token)
+        res = self._resources_v2(id_token=id_token, level=2)
         items = [s.to_summary() for s in res.sites.values()]
         items = _apply_filters(items, filters)
         return _paginate(items, limit=limit, offset=offset)
 
     def query_hosts(self, *, id_token: str, filters: Optional[FilterSpec] = None,
                     limit: Optional[int] = None, offset: int = 0) -> List[Record]:
-        res = self._resources_v2(id_token=id_token)
+        res = self._resources_v2(id_token=id_token, level=2)
         items = [h.to_dict() for h in res.list_hosts()]
         items = _apply_filters(items, filters)
         return _paginate(items, limit=limit, offset=offset)

@@ -1,4 +1,3 @@
-
 #!/usr/bin/env python3
 # MIT License
 #
@@ -9,14 +8,21 @@
 
 from __future__ import annotations
 
+import logging
+import traceback
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
-try:
-    # Strong type for the canonical FIM topology class
-    from fim.user.topology import AdvertizedTopology  # noqa: F401
-except Exception:  # pragma: no cover - keeps import optional for typing-only environments
-    AdvertizedTopology = object  # type: ignore
+from fim.user.composite_node import CompositeNode
+from fim.user.node import Node
+
+
+@dataclass(frozen=True)
+class SwitchInfo:
+    """Normalized P4 Switch inventory of a host."""
+    model: str
+    capacity: Optional[int] = None
+    allocated: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -130,17 +136,24 @@ class SiteV2:
     location: Optional[Tuple[float, float]] = None
     state: Optional[str] = None
     ptp_capable: Optional[bool] = None
+    ipv4_management: Optional[bool] = None
 
-    # Indexed views injected by ResourcesV2
     _hosts_index: Mapping[str, HostInfo] = field(default_factory=dict, repr=False)
     _facility_ports_index: Mapping[str, FacilityPortInfo] = field(default_factory=dict, repr=False)
     _links_index: Mapping[str, List[LinkInfo]] = field(default_factory=dict, repr=False)
+    _switches_index: Mapping[str, SwitchInfo] = field(default_factory=dict, repr=False)
 
     def get_host_names(self) -> List[str]:
         return list(self._hosts_index.keys())
 
     def get_hosts(self) -> List[HostInfo]:
         return list(self._hosts_index.values())
+
+    def get_switch_names(self) -> List[str]:
+        return list(self._switches_index.keys())
+
+    def get_switches(self) -> List[SwitchInfo]:
+        return list(self._switches_index.values())
 
     def get_facility_ports(self) -> List[FacilityPortInfo]:
         return list(self._facility_ports_index.values())
@@ -176,6 +189,7 @@ class SiteV2:
             "address": self.address,
             "location": self.location,
             "ptp_capable": self.ptp_capable,
+            "ipv4_management": self.ipv4_management,
             "cores_capacity": cores_cap,
             "cores_allocated": cores_alloc,
             "cores_available": max(0, cores_cap - cores_alloc),
@@ -187,3 +201,72 @@ class SiteV2:
             "disk_available": max(0, disk_cap - disk_alloc),
             "hosts": self.get_host_names(),
         }
+
+
+def load_site(site: CompositeNode) -> Tuple[SiteV2, Dict[str, HostInfo], Dict[str, SwitchInfo]]:
+    hosts: Dict[str, HostInfo] = {}
+    switches: Dict[str, SwitchInfo] = {}
+    try:
+        from fim.user import NodeType
+
+        for c_name, child in site.children.items():
+            if child.type == NodeType.Server:
+                hosts[c_name] = load_host(site.site, c_name, child)
+            elif child.type == NodeType.Switch:
+                switches[c_name] = load_switch(c_name, child)
+
+        site_v2 = SiteV2(
+            name=site.site,
+            address=site.location.postal if site.location else None,
+            location=(site.location.lat, site.location.lon) if site.location else None,
+            state=None,
+            ptp_capable=site.flags.ptp if site.flags else None,
+            ipv4_management=site.flags.ipv4_management if site.flags else None,
+        )
+
+        return site_v2, hosts, switches
+    except Exception as e:
+        logging.error(f"Error occurred in load_site - {e}")
+        logging.error(traceback.format_exc())
+        return SiteV2(name=site.site, state="Error"), hosts, switches
+
+
+def load_switch(switch_name: str, switch: Node) -> SwitchInfo:
+    return SwitchInfo(model=switch_name,
+                      capacity=switch.capacities.unit if switch.capacities else None,
+                      allocated=switch.capacity_allocations.unit if switch.capacity_allocations else None)
+
+
+def load_host(site_name: str, host_name: str, host: Node) -> HostInfo:
+    components = {}
+    for model_name, component in host.components.items():
+        capacity = component.capacities.unit if component.capacities else None
+        alloc = component.capacity_allocations.unit if component.capacity_allocations else None
+
+        # The original code's logic for aggregating components is flawed for dataclasses/frozen.
+        # It's better to replace the component if the model name is the same.
+        if model_name not in components:
+            components[model_name] = ComponentInfo(model=component.model,
+                                                   capacity=capacity,
+                                                   allocated=alloc)
+        else:
+            # Aggregate capacity/allocation if multiple components have the same model name
+            existing = components[model_name]
+            components[model_name] = ComponentInfo(
+                model=existing.model,
+                capacity=(existing.capacity or 0) + (capacity or 0),
+                allocated=(existing.allocated or 0) + (alloc or 0),
+            )
+
+    return HostInfo(
+        name=host_name,
+        site=site_name,
+        components=components,
+        cores_capacity=host.capacities.core if host.capacities else None,
+        ram_capacity=host.capacities.ram if host.capacities else None,
+        disk_capacity=host.capacities.disk if host.capacities else None,
+        cores_allocated=host.capacity_allocations.core if host.capacity_allocations else None,
+        ram_allocated=host.capacity_allocations.ram if host.capacity_allocations else None,
+        disk_allocated=host.capacity_allocations.disk if host.capacity_allocations else None,
+    )
+
