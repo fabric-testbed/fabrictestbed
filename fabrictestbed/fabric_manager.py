@@ -190,6 +190,48 @@ class FabricManager(SliceManager):
             raise FabricManagerException(error_message)
 
     # -------------------------------------------------------------------------
+    # Storage (Core API)
+    # -------------------------------------------------------------------------
+
+    def list_storage(self, offset: int = 0, limit: int = 200) -> list:
+        """
+        Retrieve all storage volumes.
+
+        :param offset: Pagination offset (default: ``0``).
+        :type offset: int
+        :param limit: Maximum number of records to fetch (default: ``200``).
+        :type limit: int
+        :return: List of storage volume objects (shape as returned by Core API).
+        :rtype: list
+        :raises FabricManagerException: On Core API errors.
+        """
+        try:
+            core_api_proxy = CoreApi(core_api_host=self.core_api_host, token=self.ensure_valid_id_token())
+            return core_api_proxy.list_storage(offset=offset, limit=limit)
+        except Exception as e:
+            error_message = Utils.extract_error_message(exception=e)
+            raise FabricManagerException(error_message)
+
+    def get_storage(self, uuid: str) -> list:
+        """
+        Retrieve a specific storage volume by UUID.
+
+        :param uuid: Storage volume UUID.
+        :type uuid: str
+        :return: Storage volume details (shape as returned by Core API).
+        :rtype: list
+        :raises FabricManagerException: On Core API errors.
+        """
+        if not uuid:
+            raise FabricManagerException("uuid must be provided")
+        try:
+            core_api_proxy = CoreApi(core_api_host=self.core_api_host, token=self.ensure_valid_id_token())
+            return core_api_proxy.get_storage(uuid=uuid)
+        except Exception as e:
+            error_message = Utils.extract_error_message(exception=e)
+            raise FabricManagerException(error_message)
+
+    # -------------------------------------------------------------------------
     # User / Project Info (Core API)
     # -------------------------------------------------------------------------
 
@@ -352,14 +394,6 @@ class FabricManager(SliceManager):
         :type artifact_id: str or None
         :param search: Search string (title substring match).
         :type search: str or None
-        :param owner: Owner (email or subject) to filter.
-        :type owner: str or None
-        :param visibility: Visibility filter (e.g., PRIVATE, PROJECT, PUBLIC).
-        :type visibility: Visibility or None
-        :param limit: Max items to return (default: ``50``).
-        :type limit: int
-        :param offset: Pagination offset (default: ``0``).
-        :type offset: int
         :return: List of artifact records.
         :rtype: list
         :raises FabricManagerException: On Artifact Manager errors.

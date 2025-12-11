@@ -83,6 +83,7 @@ class FacilityPortInfo:
     switch: Optional[str] = None
     labels: Optional[Any] = None   # keep original object, defer conversion
     vlans: Optional[str] = None
+    allocated_vlans: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         labs = self.labels.to_dict() if hasattr(self.labels, "to_dict") and self.labels else self.labels
@@ -93,6 +94,7 @@ class FacilityPortInfo:
             "switch": self.switch,
             "labels": labs,
             "vlans": self.vlans,
+            "allocated_vlans": self.allocated_vlans,
         }
 
 
@@ -109,6 +111,8 @@ class LinkInfo:
     layer: Optional[str]
     labels: Optional[Any]
     bandwidth: Optional[int]
+    allocated_bandwidth: Optional[int]
+    sites: Optional[Tuple[str, ...]]
     endpoints: List[LinkEndpoint]
 
     def to_dict(self) -> Dict[str, Any]:
@@ -118,6 +122,8 @@ class LinkInfo:
             "layer": self.layer,
             "labels": labs,
             "bandwidth": self.bandwidth,
+            "allocated_bandwidth": self.allocated_bandwidth,
+            "sites": self.sites,
             "endpoints": [{"site": e.site, "node": e.node, "port": e.port} for e in self.endpoints],
         }
 

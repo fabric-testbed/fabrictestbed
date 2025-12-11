@@ -6,96 +6,110 @@
 from __future__ import annotations
 
 import logging
-import re
 import traceback
-from typing import Any, Callable, Dict, Iterable, List, Optional, Union, Literal
+from typing import Any, Callable, Dict, Iterable, List, Optional, Literal
 
 from fim.user.topology import AdvertizedTopology
 
 from fabrictestbed.external_api.orchestrator_client import OrchestratorClient
-from fabrictestbed.slice_editor import GraphFormat
 from fabrictestbed.util.resources_v2 import ResourcesV2
 
 Record = Dict[str, Any]
-FilterSpec = Union[Callable[[Record], bool], Dict[str, Any]]
+FilterFunc = Optional[Callable[[Record], bool]]
 
 def get_logger(name: str = "fabric.manager", level: int = logging.INFO) -> logging.Logger:
     return logging.getLogger(name)
 
-def _op_match(value: Any, spec: Dict[str, Any]) -> bool:
-    for op, cond in spec.items():
-        if op == "eq":
-            if value != cond: return False
-        elif op == "ne":
-            if value == cond: return False
-        elif op == "lt":
-            if not (value is not None and value < cond): return False
-        elif op == "lte":
-            if not (value is not None and value <= cond): return False
-        elif op == "gt":
-            if not (value is not None and value > cond): return False
-        elif op == "gte":
-            if not (value is not None and value >= cond): return False
-        elif op == "in":
-            try:
-                if value not in cond: return False
-            except Exception:
-                return False
-        elif op == "contains":
-            if value is None or str(cond) not in str(value): return False
-        elif op == "icontains":
-            if value is None or str(cond).lower() not in str(value).lower(): return False
-        elif op == "regex":
-            import re as _re
-            if value is None or _re.search(cond, str(value)) is None: return False
-        elif op == "any":
-            if value is None: return False
-            ok = False
-            if callable(cond):
-                ok = any(cond(v) for v in value)
-            else:
-                try:
-                    ok = any(v in cond for v in value)
-                except Exception:
-                    ok = False
-            if not ok: return False
-        elif op == "all":
-            if value is None: return False
-            if callable(cond):
-                ok = all(cond(v) for v in value)
-            else:
-                try:
-                    ok = all(v in cond for v in value)
-                except Exception:
-                    ok = False
-            if not ok: return False
-    return True
 
+def _apply_filters(data: Iterable[Record], filters: FilterFunc) -> List[Record]:
+    """
+    Apply a lambda/callable filter function to records.
 
-def _record_matches(record: Record, flt: FilterSpec) -> bool:
-    if flt is None:
-        return True
-    if callable(flt):
-        return bool(flt(record))
-    if "or" in flt and isinstance(flt["or"], list):
-        return any(_record_matches(record, branch) for branch in flt["or"] if isinstance(branch, dict))
-    for field, condition in flt.items():
-        if field == "or":
-            continue
-        value = record.get(field, None)
-        if isinstance(condition, dict):
-            if not _op_match(value, condition):
-                return False
-        else:
-            if value != condition:
-                return False
-    return True
+    :param data: Iterable of records to filter
+    :param filters: Optional lambda function that takes a record and returns bool
+    :return: List of records that match the filter
 
+    Lambda Filter Best Practices:
+        - Always use .get() with defaults: r.get('field', 0)
+        - Check for None values: r.get('field') is not None
+        - Use .lower() for case-insensitive string matching
+        - Type safety: ensure comparisons match field types
 
-def _apply_filters(data: Iterable[Record], filters: Optional[FilterSpec]) -> List[Record]:
+    Site Filter Examples:
+        # Sites with >= 64 cores available
+        lambda r: r.get('cores_available', 0) >= 64
+
+        # Sites at specific locations
+        lambda r: r.get('name') in ['RENC', 'UCSD', 'STAR']
+
+        # Sites with GPUs
+        lambda r: 'GPU' in r.get('components', {})
+
+        # Complex: Sites with GPUs AND high resources
+        lambda r: 'GPU' in r.get('components', {}) and r.get('cores_available', 0) >= 100
+
+    Host Filter Examples:
+        # Hosts at UCSD
+        lambda r: r.get('site') == 'UCSD'
+
+        # Hosts with Tesla T4 GPUs
+        lambda r: 'GPU-Tesla T4' in r.get('components', {})
+
+        # Hosts with available GPUs (capacity > allocated)
+        lambda r: any(
+            r.get('components', {}).get(comp, {}).get('capacity', 0) >
+            r.get('components', {}).get(comp, {}).get('allocated', 0)
+            for comp in r.get('components', {}).keys() if 'GPU' in comp
+        )
+
+        # Complex: UCSD hosts with >=32 cores AND GPUs
+        lambda r: (
+            r.get('site') == 'UCSD' and
+            r.get('cores_available', 0) >= 32 and
+            any('GPU' in comp for comp in r.get('components', {}).keys())
+        )
+
+    Facility Port Filter Examples:
+        # Ports at UCSD
+        lambda r: r.get('site') == 'UCSD'
+
+        # Ports at multiple sites
+        lambda r: r.get('site') in ['UCSD', 'STAR', 'BRIST']
+
+        # Ports with specific VLAN range (check labels)
+        lambda r: '3110-3119' in r.get('labels', {}).get('vlan_range', [])
+
+        # Cloud facility ports
+        lambda r: r.get('site') in ['GCP', 'AWS', 'AZURE']
+
+        # StarLight ports
+        lambda r: 'StarLight' in r.get('name', '')
+
+        # 400G ports
+        lambda r: '400G' in r.get('name', '')
+
+    Link Filter Examples:
+        # High-bandwidth links (>=100 Gbps)
+        lambda r: r.get('bandwidth', 0) >= 100
+
+        # L1 links only
+        lambda r: r.get('layer') == 'L1'
+
+        # L2 links only
+        lambda r: r.get('layer') == 'L2'
+
+        # Links with HundredGigE ports
+        lambda r: any('HundredGigE' in ep.get('port', '') for ep in r.get('endpoints', []))
+
+        # Links connecting specific switches (by name)
+        lambda r: 'ucsd-data-sw' in r.get('name', '').lower()
+
+        # Links between specific switches
+        lambda r: 'losa-data-sw' in r.get('name', '').lower() and 'ucsd-data-sw' in r.get('name', '').lower()
+    """
     if filters is None:
         return list(data)
-    return [r for r in data if _record_matches(r, filters)]
+    return [r for r in data if filters(r)]
 
 
 def _paginate(data: List[Record], *, limit: Optional[int], offset: int) -> List[Record]:
@@ -195,29 +209,266 @@ class TopologyQueryAPI:
             pass
         return topo
 
-    def query_sites(self, *, id_token: str, filters: Optional[FilterSpec] = None,
-                    limit: Optional[int] = None, offset: int = 0) -> List[Record]:
+    def query_sites(
+        self,
+        *,
+        id_token: str,
+        filters: FilterFunc = None,
+        limit: Optional[int] = None,
+        offset: int = 0
+    ) -> List[Record]:
+        """
+        Query sites with optional lambda filter.
+
+        Site Record Fields:
+            - name (str): Site identifier (e.g., "SRI", "RENC", "UCSD")
+            - state (str/null): Site state
+            - address (str): Physical address
+            - location (list): [latitude, longitude]
+            - ptp_capable (bool): PTP clock support
+            - ipv4_management (bool): IPv4 management support
+            - cores_capacity (int): Total CPU cores
+            - cores_allocated (int): Cores in use
+            - cores_available (int): Cores free
+            - ram_capacity (int): Total RAM in GB
+            - ram_allocated (int): RAM in use (GB)
+            - ram_available (int): RAM free (GB)
+            - disk_capacity (int): Total disk in GB
+            - disk_allocated (int): Disk in use (GB)
+            - disk_available (int): Disk free (GB)
+            - hosts (list[str]): Worker hostnames
+            - components (dict): Component details (GPUs, NICs, FPGAs)
+
+        Filter Examples:
+            # Sites with ≥64 cores available
+            lambda r: r.get('cores_available', 0) >= 64
+
+            # Sites with ≥256 GB RAM available
+            lambda r: r.get('ram_available', 0) >= 256
+
+            # Sites at specific locations
+            lambda r: r.get('name') in ['RENC', 'UCSD', 'STAR']
+
+            # Sites with GPUs
+            lambda r: 'GPU' in r.get('components', {})
+
+            # PTP-capable sites with high resources
+            lambda r: r.get('ptp_capable') == True and r.get('cores_available', 0) >= 64
+
+            # Complex: Sites with ≥32 cores AND ≥128 GB RAM
+            lambda r: r.get('cores_available', 0) >= 32 and r.get('ram_available', 0) >= 128
+
+        :param id_token: Authentication token
+        :param filters: Optional lambda function string to filter sites (see examples above)
+        :param limit: Maximum number of results to return
+        :param offset: Number of results to skip
+        :return: List of site records matching the filter
+        """
         res = self._resources_v2(id_token=id_token, level=2)
         items = [s.to_summary() for s in res.sites.values()]
         items = _apply_filters(items, filters)
         return _paginate(items, limit=limit, offset=offset)
 
-    def query_hosts(self, *, id_token: str, filters: Optional[FilterSpec] = None,
-                    limit: Optional[int] = None, offset: int = 0) -> List[Record]:
+    def query_hosts(
+        self,
+        *,
+        id_token: str,
+        filters: FilterFunc = None,
+        limit: Optional[int] = None,
+        offset: int = 0
+    ) -> List[Record]:
+        """
+        Query hosts with optional lambda filter.
+
+        Host Record Fields:
+            - name (str): Worker hostname (e.g., "ucsd-w5.fabric-testbed.net")
+            - site (str): Site name (e.g., "UCSD", "RENC")
+            - cores_capacity (int): Total CPU cores
+            - cores_allocated (int): Cores in use
+            - cores_available (int): Cores free
+            - ram_capacity (int): Total RAM in GB
+            - ram_allocated (int): RAM in use (GB)
+            - ram_available (int): RAM free (GB)
+            - disk_capacity (int): Total disk in GB
+            - disk_allocated (int): Disk in use (GB)
+            - disk_available (int): Disk free (GB)
+            - components (dict): Component details with structure:
+                {
+                  "GPU-Tesla T4": {"capacity": 2, "allocated": 0},
+                  "SmartNIC-ConnectX-5": {"capacity": 2, "allocated": 0},
+                  "NVME-P4510": {"capacity": 4, "allocated": 0},
+                  "SharedNIC-ConnectX-6": {"capacity": 127, "allocated": 8}
+                }
+
+        Filter Examples:
+            # Hosts at UCSD
+            lambda r: r.get('site') == 'UCSD'
+
+            # Hosts with ≥32 cores available
+            lambda r: r.get('cores_available', 0) >= 32
+
+            # Hosts with any GPU
+            lambda r: any('GPU' in comp for comp in r.get('components', {}).keys())
+
+            # Hosts with Tesla T4 GPUs
+            lambda r: 'GPU-Tesla T4' in r.get('components', {})
+
+            # Hosts with available Tesla T4 GPUs (not fully allocated)
+            lambda r: r.get('components', {}).get('GPU-Tesla T4', {}).get('capacity', 0) > r.get('components', {}).get('GPU-Tesla T4', {}).get('allocated', 0)
+
+            # Hosts with ConnectX-6 NICs
+            lambda r: any('ConnectX-6' in comp for comp in r.get('components', {}).keys())
+
+            # Hosts with SmartNICs
+            lambda r: any('SmartNIC' in comp for comp in r.get('components', {}).keys())
+
+            # Complex: UCSD hosts with ≥32 cores AND GPUs
+            lambda r: r.get('site') == 'UCSD' and r.get('cores_available', 0) >= 32 and any('GPU' in comp for comp in r.get('components', {}).keys())
+
+            # Complex: High-resource hosts with Tesla T4
+            lambda r: r.get('cores_available', 0) >= 64 and r.get('ram_available', 0) >= 256 and 'GPU-Tesla T4' in r.get('components', {})
+
+        :param id_token: Authentication token
+        :param filters: Optional lambda function string to filter hosts (see examples above)
+        :param limit: Maximum number of results to return
+        :param offset: Number of results to skip
+        :return: List of host records matching the filter
+        """
         res = self._resources_v2(id_token=id_token, level=2)
         items = [h.to_dict() for h in res.list_hosts()]
         items = _apply_filters(items, filters)
         return _paginate(items, limit=limit, offset=offset)
 
-    def query_facility_ports(self, *, id_token: str, filters: Optional[FilterSpec] = None,
-                             limit: Optional[int] = None, offset: int = 0) -> List[Record]:
+    def query_facility_ports(
+        self,
+        *,
+        id_token: str,
+        filters: FilterFunc = None,
+        limit: Optional[int] = None,
+        offset: int = 0
+    ) -> List[Record]:
+        """
+        Query facility ports with optional lambda filter.
+
+        Facility Port Record Fields:
+            - site (str): Site name (e.g., "BRIST", "STAR", "UCSD", "GCP")
+            - name (str): Facility port name (e.g., "SmartInternetLab-BRIST", "StarLight-400G-1-STAR")
+            - port (str): Port identifier (e.g., "SmartInternetLab-BRIST-int")
+            - switch (str): Switch port mapping (e.g., "port+brist-data-sw:HundredGigE0/0/0/21:facility+...")
+            - labels (dict): Metadata including vlan_range and optional fields:
+                {
+                  "vlan_range": ["3110-3119"],
+                  "local_name": "Bundle-Ether110",
+                  "device_name": "agg4.sanj",
+                  "region": "sjc-zone2-6"
+                }
+            - vlans (str): String representation of VLAN ranges (e.g., "['3110-3119']")
+                Note: This is a STRING, not a list!
+            - allocated_vlans (str/null): Allocated VLANs from label allocations (stringified)
+
+        Filter Examples:
+            # Ports at specific site
+            lambda r: r.get('site') == 'UCSD'
+
+            # Ports at multiple sites
+            lambda r: r.get('site') in ['UCSD', 'STAR', 'BRIST']
+
+            # Ports by name pattern
+            lambda r: 'NRP' in r.get('name', '')
+
+            # Ports with specific VLAN range (check labels, not vlans string)
+            lambda r: '3110-3119' in r.get('labels', {}).get('vlan_range', [])
+
+            # Cloud facility ports
+            lambda r: r.get('site') in ['GCP', 'AWS', 'AZURE']
+
+            # Ports with wide VLAN range (multiple ranges)
+            lambda r: len(r.get('labels', {}).get('vlan_range', [])) > 2
+
+            # StarLight facility ports
+            lambda r: 'StarLight' in r.get('name', '')
+
+            # 400G ports
+            lambda r: '400G' in r.get('name', '')
+
+            # Ports with HundredGigE switch connection
+            lambda r: 'HundredGigE' in r.get('switch', '')
+
+            # Ports in specific region (cloud)
+            lambda r: r.get('labels', {}).get('region') == 'sjc-zone2-6'
+
+        :param id_token: Authentication token
+        :param filters: Optional lambda function string to filter facility ports (see examples above)
+        :param limit: Maximum number of results to return
+        :param offset: Number of results to skip
+        :return: List of facility port records matching the filter
+        """
         res = self._resources_v2(id_token=id_token)
         items = [fp.to_dict() for fp in res.list_facility_ports()]
         items = _apply_filters(items, filters)
         return _paginate(items, limit=limit, offset=offset)
 
-    def query_links(self, *, id_token: str, filters: Optional[FilterSpec] = None,
-                    limit: Optional[int] = None, offset: int = 0) -> List[Record]:
+    def query_links(
+        self,
+        *,
+        id_token: str,
+        filters: FilterFunc = None,
+        limit: Optional[int] = None,
+        offset: int = 0
+    ) -> List[Record]:
+        """
+        Query links with optional lambda filter.
+
+        Link Record Fields:
+            - name (str): Link identifier (e.g., "link:local-port+losa-data-sw:HundredGigE0/0/0/15...")
+            - layer (str): Network layer ("L1" or "L2")
+            - labels (dict/null): Additional metadata
+            - bandwidth (int): Link bandwidth in Gbps
+            - allocated_bandwidth (int/null): Allocated link bandwidth in Gbps
+            - sites (tuple[str, str, ...]/null): Site names derived from trunk interface names
+            - endpoints (list): List of endpoint dicts with structure:
+                [
+                  {"site": "RENC", "node": "uuid-string", "port": "HundredGigE0/0/0/15.3370"},
+                  {"site": "STAR", "node": "uuid-string", "port": "TenGigE0/0/0/22/0.3370"}
+                ]
+
+        Filter Examples:
+            # Links with ≥100 Gbps bandwidth
+            lambda r: r.get('bandwidth', 0) >= 100
+
+            # L1 links only
+            lambda r: r.get('layer') == 'L1'
+
+            # L2 links only
+            lambda r: r.get('layer') == 'L2'
+
+            # High-bandwidth L1 links
+            lambda r: r.get('layer') == 'L1' and r.get('bandwidth', 0) >= 80
+
+            # Links with HundredGigE ports
+            lambda r: any('HundredGigE' in ep.get('port', '') for ep in r.get('endpoints', []))
+
+            # Links with TenGigE ports
+            lambda r: any('TenGigE' in ep.get('port', '') for ep in r.get('endpoints', []))
+
+            # Links connecting specific switches (by name in link identifier)
+            lambda r: 'ucsd-data-sw' in r.get('name', '').lower()
+
+            # Links between specific switches
+            lambda r: (
+                'losa-data-sw' in r.get('name', '').lower() and
+                'ucsd-data-sw' in r.get('name', '').lower()
+            )
+
+            # Low-bandwidth L2 links (potential bottlenecks)
+            lambda r: r.get('layer') == 'L2' and r.get('bandwidth', 0) < 10
+
+        :param id_token: Authentication token
+        :param filters: Optional lambda function string to filter links (see examples above)
+        :param limit: Maximum number of results to return
+        :param offset: Number of results to skip
+        :return: List of link records matching the filter
+        """
         res = self._resources_v2(id_token=id_token)
         items = [l.to_dict() for l in res.list_links()]
         items = _apply_filters(items, filters)

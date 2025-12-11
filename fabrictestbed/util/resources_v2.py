@@ -99,8 +99,31 @@ class ResourcesV2:
         for fp in self.topology.facilities.values():
             site_name = fp.site
             site_bucket = fps_by_site.setdefault(site_name, {})
-            for iface in fp.interface_list:
+            for idx, iface in enumerate(fp.interface_list):
                 labs = getattr(iface, "labels", None)
+                local_name = getattr(labs, "local_name", None) if labs else None
+                device_name = getattr(labs, "device_name", None) if labs else None
+
+                # Try peers to fill in local/device name if missing (fablib behavior)
+                if not local_name:
+                    try:
+                        for peer in iface.get_peers():
+                            peer_labels = getattr(peer, "labels", None)
+                            if peer_labels and getattr(peer_labels, "local_name", None):
+                                local_name = getattr(peer_labels, "local_name", None)
+                                if not device_name:
+                                    device_name = getattr(peer_labels, "device_name", None)
+                                break
+                    except Exception:
+                        pass
+
+                label_allocations = None
+                try:
+                    label_allocations = iface.get_property("label_allocations")
+                except Exception:
+                    # property may not exist; best-effort only
+                    label_allocations = None
+
                 vlan_range = None
                 if labs:
                     vr = getattr(labs, "vlan_range", None)
@@ -111,13 +134,31 @@ class ResourcesV2:
                         if v is not None:
                             vlan_range = str([v])
 
-                site_bucket[fp.name] = FacilityPortInfo(
+                allocated_vlans = None
+                if label_allocations:
+                    alloc_vlan = getattr(label_allocations, "vlan", None)
+                    if alloc_vlan is not None:
+                        allocated_vlans = str(alloc_vlan)
+
+                port_name = local_name or device_name or getattr(iface, "name", None)
+                # Use interface-specific key so multiple interfaces per facility are kept
+                # Ensure uniqueness even if node_id is reused across interfaces
+                fp_key_parts = [
+                    fp.name,
+                    getattr(iface, "node_id", "") or "",
+                    getattr(iface, "name", "") or "",
+                    str(idx),
+                ]
+                fp_key = "|".join(fp_key_parts)
+
+                site_bucket[fp_key] = FacilityPortInfo(
                     site=site_name,
                     name=fp.name,
-                    port=getattr(iface, "name", None),
+                    port=port_name,
                     switch=getattr(iface, "node_id", None),
                     labels=labs,
                     vlans=vlan_range,
+                    allocated_vlans=allocated_vlans,
                 )
         self._facility_ports_by_site = fps_by_site
 
@@ -142,11 +183,23 @@ class ResourcesV2:
         site_to_indices: Dict[str, List[int]] = {}
 
         for _, L in self.topology.links.items():
+            site_names: Optional[Tuple[str, ...]] = None
+            if getattr(L, "interface_list", None):
+                first_iface = L.interface_list[0]
+                iface_type = getattr(getattr(first_iface, "type", None), "name", None)
+                iface_name = getattr(first_iface, "name", None)
+                if iface_type == "TrunkPort" and iface_name:
+                    parts = iface_name.split("_")
+                    if parts and "HundredGig" not in parts[0]:
+                        site_names = tuple(parts)
+
             endpoints: List[LinkEndpoint] = []
-            for iface in L.interface_list:
+            for idx, iface in enumerate(L.interface_list):
                 site_name, node_name = (None, None)
                 if node_idx and getattr(iface, "node_id", None) in node_idx:
                     site_name, node_name = node_idx[iface.node_id]
+                if site_name is None and site_names and idx < len(site_names):
+                    site_name = site_names[idx]
 
                 labs = getattr(iface, "labels", None)
                 port = getattr(labs, "local_name", None) or getattr(labs, "device_name", None)
@@ -163,6 +216,8 @@ class ResourcesV2:
                 layer=str(getattr(L, "layer", None)) if getattr(L, "layer", None) else None,
                 labels=getattr(L, "labels", None),
                 bandwidth=getattr(getattr(L, "capacities", None), "bw", None),
+                allocated_bandwidth=getattr(getattr(L, "capacity_allocations", None), "bw", None),
+                sites=site_names,
                 endpoints=endpoints,
             )
             idx = len(all_links)
