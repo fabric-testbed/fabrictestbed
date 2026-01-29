@@ -88,6 +88,8 @@ class FabricManager(SliceManager):
     :type refresh_token: str or None
     :param no_write: If ``True``, never write tokens to disk (recommended for MCP).
     :type no_write: bool
+    :param auto_refresh: Flag to enable automatic token refresh
+    :type auto_refresh: bool
 
     :raises FabricManagerException: If required env/hosts are not provided.
     """
@@ -106,6 +108,7 @@ class FabricManager(SliceManager):
         id_token: Optional[str] = None,
         refresh_token: Optional[str] = None,
         no_write: bool = False,
+        auto_refresh: bool = True,
     ):
         super().__init__(
             cm_host=cm_host,
@@ -117,6 +120,7 @@ class FabricManager(SliceManager):
             id_token=id_token,
             refresh_token=refresh_token,
             no_write=no_write,
+            auto_refresh=auto_refresh
         )
 
         if core_api_host is None:

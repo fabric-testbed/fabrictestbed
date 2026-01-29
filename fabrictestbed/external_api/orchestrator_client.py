@@ -636,6 +636,100 @@ class OrchestratorClient:
         substrate.load(graph_string=graph_string)
         return substrate
 
+    def resources_summary(
+        self,
+        *,
+        token: str,
+        level: int = 2,
+        force_refresh: bool = False,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        includes: Optional[List[str]] = None,
+        excludes: Optional[List[str]] = None,
+        resource_type: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Fetch a pre-built JSON resource summary from the orchestrator.
+        Returns a dict with keys: sites, hosts, links, facility_ports.
+        Much faster than resources() for clients that only need summary data.
+
+        :param token: Fabric Identity Token
+        :param level: Level of details (default 2)
+        :param force_refresh: Force to retrieve current available resource information.
+        :param start: start time
+        :param end: end time
+        :param includes: list of site names to include
+        :param excludes: list of site names to exclude
+        :param resource_type: comma-separated types to return (sites,hosts,links,facility_ports)
+        :returns: dict with resource summary data
+        """
+        if not token:
+            raise OrchestratorValidationError("Token must be specified")
+
+        params: Dict[str, Union[str, int, bool]] = {
+            "level": level,
+            "force_refresh": force_refresh,
+        }
+        if start:
+            params["start_date"] = start.strftime(self.TIME_FORMAT)
+        if end:
+            params["end_date"] = end.strftime(self.TIME_FORMAT)
+        if includes:
+            params["includes"] = ", ".join(includes)
+        if excludes:
+            params["excludes"] = ", ".join(excludes)
+        if resource_type:
+            params["type"] = resource_type
+
+        resp = self._req("GET", "/resources/summary", token=token, params=params)
+        payload = self._json(resp)
+        data = (payload.get("data") or [{}])
+        return data[0] if data else {}
+
+    def portal_resources_summary(
+        self,
+        *,
+        level: int = 2,
+        force_refresh: bool = False,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        includes: Optional[List[str]] = None,
+        excludes: Optional[List[str]] = None,
+        resource_type: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Fetch a pre-built JSON resource summary from the orchestrator (portal, no auth).
+        Returns a dict with keys: sites, hosts, links, facility_ports.
+
+        :param level: Level of details (default 2)
+        :param force_refresh: Force to retrieve current available resource information.
+        :param start: start time
+        :param end: end time
+        :param includes: list of site names to include
+        :param excludes: list of site names to exclude
+        :param resource_type: comma-separated types to return (sites,hosts,links,facility_ports)
+        :returns: dict with resource summary data
+        """
+        params: Dict[str, Union[str, int, bool]] = {
+            "level": level,
+            "force_refresh": force_refresh,
+        }
+        if start:
+            params["start_date"] = start.strftime(self.TIME_FORMAT)
+        if end:
+            params["end_date"] = end.strftime(self.TIME_FORMAT)
+        if includes:
+            params["includes"] = ", ".join(includes)
+        if excludes:
+            params["excludes"] = ", ".join(excludes)
+        if resource_type:
+            params["type"] = resource_type
+
+        resp = self._req("GET", "/portalresources/summary", params=params)
+        payload = self._json(resp)
+        data = (payload.get("data") or [{}])
+        return data[0] if data else {}
+
     def renew(self, *, token: str, slice_id: str, new_lease_end_time: str) -> None:
         if not token or not slice_id or not new_lease_end_time:
             raise OrchestratorValidationError("Token, slice_id, and new_lease_end_time must be specified")

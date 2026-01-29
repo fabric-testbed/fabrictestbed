@@ -579,8 +579,6 @@ class FabricManagerV2(TopologyQueryAPI):
         :param key_type_filter: Optional key type filter (e.g., "sliver", "bastion").
         :return: List of key records.
         """
-        if not user_uuid:
-            raise ValueError("user_uuid is required")
         if not self.core_api_host:
             raise ValueError("core_api_host must be provided during initialization to use project methods")
 

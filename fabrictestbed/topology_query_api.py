@@ -180,6 +180,25 @@ class TopologyQueryAPI:
             return_fmt=return_fmt,
         )
 
+    def _resources_summary(self, *, id_token: str, level: int = 2,
+                           resource_type: str = None) -> Optional[Dict[str, Any]]:
+        """
+        Try to get resources summary (JSON) from the orchestrator.
+        Returns None if the endpoint is not available.
+        """
+        try:
+            if id_token:
+                return self.orch.resources_summary(
+                    token=id_token, level=level, resource_type=resource_type
+                )
+            else:
+                return self.orch.portal_resources_summary(
+                    level=level, resource_type=resource_type
+                )
+        except Exception:
+            self.log.debug("resources_summary endpoint not available, falling back to graph-based path")
+            return None
+
     def _get_resources_topology(self, *, id_token: str, level: int = 1):
         fim_topo = self.resources(id_token=id_token, level=level, return_fmt="dto")
         return fim_topo
@@ -188,7 +207,7 @@ class TopologyQueryAPI:
         fim_topo = self.portal_resources(graph_format="GRAPHML", level=level, return_fmt="dto")
         return fim_topo
 
-    def _get_public_resources_v2(self, *, level: int = 1):
+    def _get_public_resources(self, *, level: int = 1):
         topo = self._get_public_resources_topology(level=level)
         try:
             topo = ResourcesV2(topology=topo)
@@ -197,9 +216,9 @@ class TopologyQueryAPI:
             pass
         return topo
 
-    def _resources_v2(self, *, id_token: str, level: int = 1):
+    def _resources(self, *, id_token: str, level: int = 1):
         if id_token is None:
-            topo = self._get_public_resources_v2(level=level)
+            topo = self._get_public_resources(level=level)
         else:
             topo = self._get_resources_topology(id_token=id_token, level=level)
         try:
@@ -264,8 +283,12 @@ class TopologyQueryAPI:
         :param offset: Number of results to skip
         :return: List of site records matching the filter
         """
-        res = self._resources_v2(id_token=id_token, level=2)
-        items = [s.to_summary() for s in res.sites.values()]
+        summary = self._resources_summary(id_token=id_token, level=2, resource_type="sites")
+        if summary and "sites" in summary:
+            items = summary["sites"]
+        else:
+            res = self._resources(id_token=id_token, level=2)
+            items = [s.to_summary() for s in res.sites.values()]
         items = _apply_filters(items, filters)
         return _paginate(items, limit=limit, offset=offset)
 
@@ -334,8 +357,12 @@ class TopologyQueryAPI:
         :param offset: Number of results to skip
         :return: List of host records matching the filter
         """
-        res = self._resources_v2(id_token=id_token, level=2)
-        items = [h.to_dict() for h in res.list_hosts()]
+        summary = self._resources_summary(id_token=id_token, level=2, resource_type="hosts")
+        if summary and "hosts" in summary:
+            items = summary["hosts"]
+        else:
+            res = self._resources(id_token=id_token, level=2)
+            items = [h.to_dict() for h in res.list_hosts()]
         items = _apply_filters(items, filters)
         return _paginate(items, limit=limit, offset=offset)
 
@@ -403,8 +430,12 @@ class TopologyQueryAPI:
         :param offset: Number of results to skip
         :return: List of facility port records matching the filter
         """
-        res = self._resources_v2(id_token=id_token)
-        items = [fp.to_dict() for fp in res.list_facility_ports()]
+        summary = self._resources_summary(id_token=id_token, level=2, resource_type="facility_ports")
+        if summary and "facility_ports" in summary:
+            items = summary["facility_ports"]
+        else:
+            res = self._resources(id_token=id_token)
+            items = [fp.to_dict() for fp in res.list_facility_ports()]
         items = _apply_filters(items, filters)
         return _paginate(items, limit=limit, offset=offset)
 
@@ -469,7 +500,11 @@ class TopologyQueryAPI:
         :param offset: Number of results to skip
         :return: List of link records matching the filter
         """
-        res = self._resources_v2(id_token=id_token)
-        items = [l.to_dict() for l in res.list_links()]
+        summary = self._resources_summary(id_token=id_token, level=2, resource_type="links")
+        if summary and "links" in summary:
+            items = summary["links"]
+        else:
+            res = self._resources(id_token=id_token)
+            items = [l.to_dict() for l in res.list_links()]
         items = _apply_filters(items, filters)
         return _paginate(items, limit=limit, offset=offset)

@@ -100,7 +100,7 @@ class TokenManager:
     :type no_write: bool
     :param auto_refresh: (Optional) A flag indicating whether the token should be automatically refreshed
                               when it expires. Defaults to True.
-    :type no_write: bool
+    :type auto_refresh: bool
 
     :raises TokenManagerException: on refresh or token handling failures
     """
@@ -433,3 +433,45 @@ class TokenManager:
                 raise TokenManagerException("Token expired")
 
         return tok
+
+    def get_user_id(self) -> str:
+        """
+        Retrieve the user ID associated with the current session.
+
+        This method returns the user ID if it has already been determined. If the user ID
+        has not been set and an identity token is available, it will attempt to extract
+        the user ID by decoding the token using the credential manager proxy.
+
+        @return: The user ID if available; otherwise, None.
+        """
+        if not self.user_id and self.get_id_token() and self.cm_proxy:
+            self._extract_project_and_user_info_from_token(cm_host=self.cm_proxy.host)
+        return self.user_id
+
+    def get_user_email(self) -> str:
+        """
+        Retrieve the user email associated with the current session.
+
+        This method returns the user email if it has already been determined. If the user email
+        has not been set and an identity token is available, it will attempt to extract
+        the user email by decoding the token using the credential manager proxy.
+
+        @return: The user email if available; otherwise, None.
+        """
+        if not self.user_email and self.get_id_token() and self.cm_proxy:
+            self._extract_project_and_user_info_from_token(cm_host=self.cm_proxy.host)
+        return self.user_email
+
+    def get_project_name(self) -> str:
+        """
+        Retrieve the project name associated with the current session.
+
+        This method returns the project name if it has already been determined. If the project name
+        has not been set and an identity token is available, it will attempt to extract
+        the project name by decoding the token using the credential manager proxy.
+
+        @return: The project_name if available; otherwise, None.
+        """
+        if not self.project_name and self.get_id_token() and self.cm_proxy:
+            self._extract_project_and_user_info_from_token(cm_host=self.cm_proxy.host)
+        return self.project_name
