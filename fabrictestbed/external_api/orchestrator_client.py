@@ -570,8 +570,7 @@ class OrchestratorClient:
         end: Optional[datetime] = None,
         includes: Optional[List[str]] = None,
         excludes: Optional[List[str]] = None,
-        return_fmt: Literal["dto", "dict"] = "dto",
-    ) -> Optional[AdvertizedTopology] | Optional[Dict[str, str]]:
+    ) -> AdvertizedTopology:
         if not token:
             raise OrchestratorValidationError("Token must be specified")
 
@@ -593,8 +592,6 @@ class OrchestratorClient:
         graph_string = (payload.get("data") or [{}])[0].get("model")
         if not graph_string:
             return None
-        if return_fmt == "dict":
-            return {"graph_format": GraphFormat.GRAPHML.name, "model": graph_string}
         substrate = AdvertizedTopology()
         substrate.load(graph_string=graph_string)
         return substrate
@@ -609,8 +606,7 @@ class OrchestratorClient:
         end: Optional[datetime] = None,
         includes: Optional[List[str]] = None,
         excludes: Optional[List[str]] = None,
-        return_fmt: Literal["dto", "dict"] = "dto",
-    ) -> Optional[AdvertizedTopology] | Optional[Dict[str, str]]:
+    ) -> AdvertizedTopology:
         params: Dict[str, Union[str, int, bool]] = {"graph_format": graph_format}
         if level is not None:
             params["level"] = level
@@ -630,8 +626,6 @@ class OrchestratorClient:
         graph_string = (payload.get("data") or [{}])[0].get("model")
         if not graph_string:
             return None
-        if return_fmt == "dict":
-            return {"graph_format": graph_format, "model": graph_string}
         substrate = AdvertizedTopology()
         substrate.load(graph_string=graph_string)
         return substrate

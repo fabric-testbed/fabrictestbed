@@ -6,13 +6,11 @@
 from __future__ import annotations
 
 import logging
-import traceback
 from typing import Any, Callable, Dict, Iterable, List, Optional, Literal
 
 from fim.user.topology import AdvertizedTopology
 
 from fabrictestbed.external_api.orchestrator_client import OrchestratorClient
-from fabrictestbed.util.resources_v2 import ResourcesV2
 
 Record = Dict[str, Any]
 FilterFunc = Optional[Callable[[Record], bool]]
@@ -144,8 +142,7 @@ class TopologyQueryAPI:
         end_date: Optional[str] = None,
         includes: Optional[List[str]] = None,
         excludes: Optional[List[str]] = None,
-        return_fmt: Literal["dict", "dto"] = "dict",
-    ) -> Union[Dict[str, Any], AdvertizedTopology]:
+    ) -> AdvertizedTopology:
         return self.orch.resources(
             token=id_token,
             level=level,
@@ -154,7 +151,6 @@ class TopologyQueryAPI:
             end=end_date,
             includes=includes,
             excludes=excludes,
-            return_fmt=return_fmt,
         )
 
     def portal_resources(
@@ -167,8 +163,7 @@ class TopologyQueryAPI:
         end_date: Optional[str] = None,
         includes: Optional[List[str]] = None,
         excludes: Optional[List[str]] = None,
-        return_fmt: Literal["dict", "dto"] = "dict",
-    ) -> Union[Dict[str, Any], AdvertizedTopology]:
+    ) -> AdvertizedTopology:
         return self.orch.portal_resources(
             graph_format=graph_format,
             level=level,
@@ -177,16 +172,17 @@ class TopologyQueryAPI:
             end=end_date,
             includes=includes,
             excludes=excludes,
-            return_fmt=return_fmt,
         )
 
-    def _resources_summary(self, *, id_token: str, level: int = 2,
+    def resources_summary(self, *, id_token: str = None, level: int = 2,
                            resource_type: str = None) -> Optional[Dict[str, Any]]:
         """
         Try to get resources summary (JSON) from the orchestrator.
         Returns None if the endpoint is not available.
         """
         try:
+            if not id_token:
+                token = self._resolve_token(id_token)
             if id_token:
                 return self.orch.resources_summary(
                     token=id_token, level=level, resource_type=resource_type
@@ -198,35 +194,6 @@ class TopologyQueryAPI:
         except Exception:
             self.log.debug("resources_summary endpoint not available, falling back to graph-based path")
             return None
-
-    def _get_resources_topology(self, *, id_token: str, level: int = 1):
-        fim_topo = self.resources(id_token=id_token, level=level, return_fmt="dto")
-        return fim_topo
-
-    def _get_public_resources_topology(self, *, level: int = 1):
-        fim_topo = self.portal_resources(graph_format="GRAPHML", level=level, return_fmt="dto")
-        return fim_topo
-
-    def _get_public_resources(self, *, level: int = 1):
-        topo = self._get_public_resources_topology(level=level)
-        try:
-            topo = ResourcesV2(topology=topo)
-        except Exception:
-            traceback.print_exc()
-            pass
-        return topo
-
-    def _resources(self, *, id_token: str, level: int = 1):
-        if id_token is None:
-            topo = self._get_public_resources(level=level)
-        else:
-            topo = self._get_resources_topology(id_token=id_token, level=level)
-        try:
-            topo = ResourcesV2(topology=topo)
-        except Exception:
-            traceback.print_exc()
-            pass
-        return topo
 
     def _resolve_token(self, id_token: Optional[str] = None) -> Optional[str]:
         """
@@ -252,7 +219,7 @@ class TopologyQueryAPI:
         filters: FilterFunc = None,
         limit: Optional[int] = None,
         offset: int = 0
-    ) -> List[Record]:
+    ) -> Optional[List[Record]]:
         """
         Query sites with optional lambda filter.
 
@@ -302,14 +269,12 @@ class TopologyQueryAPI:
         :return: List of site records matching the filter
         """
         token = self._resolve_token(id_token)
-        summary = self._resources_summary(id_token=token, level=2, resource_type="sites")
+        summary = self.resources_summary(id_token=token, level=2, resource_type="sites")
         if summary and "sites" in summary:
             items = summary["sites"]
-        else:
-            res = self._resources(id_token=token, level=2)
-            items = [s.to_summary() for s in res.sites.values()]
-        items = _apply_filters(items, filters)
-        return _paginate(items, limit=limit, offset=offset)
+            items = _apply_filters(items, filters)
+            return _paginate(items, limit=limit, offset=offset)
+        return None
 
     def query_hosts(
         self,
@@ -318,7 +283,7 @@ class TopologyQueryAPI:
         filters: FilterFunc = None,
         limit: Optional[int] = None,
         offset: int = 0
-    ) -> List[Record]:
+    ) -> Optional[List[Record]]:
         """
         Query hosts with optional lambda filter.
 
@@ -378,14 +343,12 @@ class TopologyQueryAPI:
         :return: List of host records matching the filter
         """
         token = self._resolve_token(id_token)
-        summary = self._resources_summary(id_token=token, level=2, resource_type="hosts")
+        summary = self.resources_summary(id_token=token, level=2, resource_type="hosts")
         if summary and "hosts" in summary:
             items = summary["hosts"]
-        else:
-            res = self._resources(id_token=token, level=2)
-            items = [h.to_dict() for h in res.list_hosts()]
-        items = _apply_filters(items, filters)
-        return _paginate(items, limit=limit, offset=offset)
+            items = _apply_filters(items, filters)
+            return _paginate(items, limit=limit, offset=offset)
+        return None
 
     def query_facility_ports(
         self,
@@ -394,7 +357,7 @@ class TopologyQueryAPI:
         filters: FilterFunc = None,
         limit: Optional[int] = None,
         offset: int = 0
-    ) -> List[Record]:
+    ) -> Optional[List[Record]]:
         """
         Query facility ports with optional lambda filter.
 
@@ -453,14 +416,12 @@ class TopologyQueryAPI:
         :return: List of facility port records matching the filter
         """
         token = self._resolve_token(id_token)
-        summary = self._resources_summary(id_token=token, level=2, resource_type="facility_ports")
+        summary = self.resources_summary(id_token=token, level=2, resource_type="facility_ports")
         if summary and "facility_ports" in summary:
             items = summary["facility_ports"]
-        else:
-            res = self._resources(id_token=token)
-            items = [fp.to_dict() for fp in res.list_facility_ports()]
-        items = _apply_filters(items, filters)
-        return _paginate(items, limit=limit, offset=offset)
+            items = _apply_filters(items, filters)
+            return _paginate(items, limit=limit, offset=offset)
+        return None
 
     def query_links(
         self,
@@ -469,7 +430,7 @@ class TopologyQueryAPI:
         filters: FilterFunc = None,
         limit: Optional[int] = None,
         offset: int = 0
-    ) -> List[Record]:
+    ) -> Optional[List[Record]]:
         """
         Query links with optional lambda filter.
 
@@ -525,11 +486,10 @@ class TopologyQueryAPI:
         :return: List of link records matching the filter
         """
         token = self._resolve_token(id_token)
-        summary = self._resources_summary(id_token=token, level=2, resource_type="links")
+        summary = self.resources_summary(id_token=token, level=2, resource_type="links")
         if summary and "links" in summary:
             items = summary["links"]
-        else:
-            res = self._resources(id_token=token)
-            items = [l.to_dict() for l in res.list_links()]
-        items = _apply_filters(items, filters)
-        return _paginate(items, limit=limit, offset=offset)
+            items = _apply_filters(items, filters)
+            return _paginate(items, limit=limit, offset=offset)
+        return None
+
