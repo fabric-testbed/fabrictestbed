@@ -19,8 +19,10 @@ from fim.user.topology import AdvertizedTopology, Topology
 from fabrictestbed.external_api.credmgr_client import CredmgrClient
 from fabrictestbed.external_api.orchestrator_client import OrchestratorClient, SliverDTO, SliceDTO, PoaDataDTO
 from fabrictestbed.external_api.core_api import CoreApi
+from fabrictestbed.fabric_manager import FabricManagerException
 from fabrictestbed.topology_query_api import TopologyQueryAPI
 from fabrictestbed.util.constants import Constants
+from fabrictestbed.util.utils import Utils
 
 
 class FabricManagerV2Exception(Exception):
@@ -306,6 +308,25 @@ class FabricManagerV2(TopologyQueryAPI):
     def get_project_id(self) -> Optional[str]:
         """Retrieve the project id from the token."""
         return self.project_id
+
+    def get_user_info(self, *, uuid: str = None, email: str = None) -> dict:
+        """
+        Retrieve user info by email or uuid.
+
+        :param uuid: User's uuid.
+        :type uuid: str
+        :param email: User's email address.
+        :type email: str
+        :return: User info dict (shape per Core API).
+        :rtype: dict
+        :raises FabricManagerException: On Core API errors.
+        """
+        try:
+            core_api_proxy = CoreApi(core_api_host=self.core_api_host, token=self.ensure_valid_id_token())
+            return core_api_proxy.get_user_info(uuid=uuid, email=email)
+        except Exception as e:
+            error_message = Utils.extract_error_message(exception=e)
+            raise FabricManagerException(error_message)
 
     # -------- Token helpers (proxy) --------
 

@@ -475,3 +475,22 @@ class TokenManager:
         if not self.project_name and self.get_id_token() and self.cm_proxy:
             self._extract_project_and_user_info_from_token(cm_host=self.cm_proxy.host)
         return self.project_name
+
+    def get_user_info(self, *, uuid: str = None, email: str = None) -> dict:
+        """
+        Retrieve user info by email or uuid.
+
+        :param uuid: User's uuid.
+        :type uuid: str
+        :param email: User's email address.
+        :type email: str
+        :return: User info dict (shape per Core API).
+        :rtype: dict
+        :raises FabricManagerException: On Core API errors.
+        """
+        try:
+            core_api_proxy = CoreApi(core_api_host=self.core_api_host, token=self.ensure_valid_id_token())
+            return core_api_proxy.get_user_info(uuid=uuid, email=email)
+        except Exception as e:
+            error_message = Utils.extract_error_message(exception=e)
+            raise FabricManagerException(error_message)
