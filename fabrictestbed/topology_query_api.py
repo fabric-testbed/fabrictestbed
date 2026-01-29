@@ -228,10 +228,27 @@ class TopologyQueryAPI:
             pass
         return topo
 
+    def _resolve_token(self, id_token: Optional[str] = None) -> Optional[str]:
+        """
+        Resolve the id_token to use, either from parameter or from ensure_valid_id_token().
+
+        :param id_token: Optional explicit token
+        :return: Resolved token or None for unauthenticated calls
+        """
+        if id_token:
+            return id_token
+        # Check if subclass has ensure_valid_id_token (e.g., FabricManagerV2)
+        if hasattr(self, 'ensure_valid_id_token'):
+            try:
+                return self.ensure_valid_id_token()
+            except Exception:
+                pass
+        return None
+
     def query_sites(
         self,
         *,
-        id_token: str,
+        id_token: Optional[str] = None,
         filters: FilterFunc = None,
         limit: Optional[int] = None,
         offset: int = 0
@@ -277,17 +294,19 @@ class TopologyQueryAPI:
             # Complex: Sites with ≥32 cores AND ≥128 GB RAM
             lambda r: r.get('cores_available', 0) >= 32 and r.get('ram_available', 0) >= 128
 
-        :param id_token: Authentication token
+        :param id_token: Optional authentication token. If not provided and the object has
+                        ensure_valid_id_token(), it will be called automatically.
         :param filters: Optional lambda function string to filter sites (see examples above)
         :param limit: Maximum number of results to return
         :param offset: Number of results to skip
         :return: List of site records matching the filter
         """
-        summary = self._resources_summary(id_token=id_token, level=2, resource_type="sites")
+        token = self._resolve_token(id_token)
+        summary = self._resources_summary(id_token=token, level=2, resource_type="sites")
         if summary and "sites" in summary:
             items = summary["sites"]
         else:
-            res = self._resources(id_token=id_token, level=2)
+            res = self._resources(id_token=token, level=2)
             items = [s.to_summary() for s in res.sites.values()]
         items = _apply_filters(items, filters)
         return _paginate(items, limit=limit, offset=offset)
@@ -295,7 +314,7 @@ class TopologyQueryAPI:
     def query_hosts(
         self,
         *,
-        id_token: str,
+        id_token: Optional[str] = None,
         filters: FilterFunc = None,
         limit: Optional[int] = None,
         offset: int = 0
@@ -351,17 +370,19 @@ class TopologyQueryAPI:
             # Complex: High-resource hosts with Tesla T4
             lambda r: r.get('cores_available', 0) >= 64 and r.get('ram_available', 0) >= 256 and 'GPU-Tesla T4' in r.get('components', {})
 
-        :param id_token: Authentication token
+        :param id_token: Optional authentication token. If not provided and the object has
+                        ensure_valid_id_token(), it will be called automatically.
         :param filters: Optional lambda function string to filter hosts (see examples above)
         :param limit: Maximum number of results to return
         :param offset: Number of results to skip
         :return: List of host records matching the filter
         """
-        summary = self._resources_summary(id_token=id_token, level=2, resource_type="hosts")
+        token = self._resolve_token(id_token)
+        summary = self._resources_summary(id_token=token, level=2, resource_type="hosts")
         if summary and "hosts" in summary:
             items = summary["hosts"]
         else:
-            res = self._resources(id_token=id_token, level=2)
+            res = self._resources(id_token=token, level=2)
             items = [h.to_dict() for h in res.list_hosts()]
         items = _apply_filters(items, filters)
         return _paginate(items, limit=limit, offset=offset)
@@ -369,7 +390,7 @@ class TopologyQueryAPI:
     def query_facility_ports(
         self,
         *,
-        id_token: str,
+        id_token: Optional[str] = None,
         filters: FilterFunc = None,
         limit: Optional[int] = None,
         offset: int = 0
@@ -424,17 +445,19 @@ class TopologyQueryAPI:
             # Ports in specific region (cloud)
             lambda r: r.get('labels', {}).get('region') == 'sjc-zone2-6'
 
-        :param id_token: Authentication token
+        :param id_token: Optional authentication token. If not provided and the object has
+                        ensure_valid_id_token(), it will be called automatically.
         :param filters: Optional lambda function string to filter facility ports (see examples above)
         :param limit: Maximum number of results to return
         :param offset: Number of results to skip
         :return: List of facility port records matching the filter
         """
-        summary = self._resources_summary(id_token=id_token, level=2, resource_type="facility_ports")
+        token = self._resolve_token(id_token)
+        summary = self._resources_summary(id_token=token, level=2, resource_type="facility_ports")
         if summary and "facility_ports" in summary:
             items = summary["facility_ports"]
         else:
-            res = self._resources(id_token=id_token)
+            res = self._resources(id_token=token)
             items = [fp.to_dict() for fp in res.list_facility_ports()]
         items = _apply_filters(items, filters)
         return _paginate(items, limit=limit, offset=offset)
@@ -442,7 +465,7 @@ class TopologyQueryAPI:
     def query_links(
         self,
         *,
-        id_token: str,
+        id_token: Optional[str] = None,
         filters: FilterFunc = None,
         limit: Optional[int] = None,
         offset: int = 0
@@ -494,17 +517,19 @@ class TopologyQueryAPI:
             # Low-bandwidth L2 links (potential bottlenecks)
             lambda r: r.get('layer') == 'L2' and r.get('bandwidth', 0) < 10
 
-        :param id_token: Authentication token
+        :param id_token: Optional authentication token. If not provided and the object has
+                        ensure_valid_id_token(), it will be called automatically.
         :param filters: Optional lambda function string to filter links (see examples above)
         :param limit: Maximum number of results to return
         :param offset: Number of results to skip
         :return: List of link records matching the filter
         """
-        summary = self._resources_summary(id_token=id_token, level=2, resource_type="links")
+        token = self._resolve_token(id_token)
+        summary = self._resources_summary(id_token=token, level=2, resource_type="links")
         if summary and "links" in summary:
             items = summary["links"]
         else:
-            res = self._resources(id_token=id_token)
+            res = self._resources(id_token=token)
             items = [l.to_dict() for l in res.list_links()]
         items = _apply_filters(items, filters)
         return _paginate(items, limit=limit, offset=offset)

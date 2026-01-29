@@ -486,3 +486,34 @@ class CredmgrClient:
         dto = DecodedTokenDTO.from_dict(payload)
         return dto.to_dict() if return_fmt == "dict" else dto
 
+    # =========================
+    # File helpers
+    # =========================
+
+    @staticmethod
+    def save_file(file_path: Union[str, Path], token_data: Dict[str, Any]) -> None:
+        """
+        Save token data to a JSON file.
+
+        :param file_path: Path to the token file.
+        :param token_data: Token dictionary to save.
+        """
+        path = Path(file_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(token_data, f, indent=2)
+
+    @staticmethod
+    def load_file(file_path: Union[str, Path]) -> Dict[str, Any]:
+        """
+        Load token data from a JSON file.
+
+        :param file_path: Path to the token file.
+        :return: Token dictionary.
+        """
+        path = Path(file_path)
+        if not path.exists():
+            return {}
+        with open(path, "r") as f:
+            return json.load(f)
+
