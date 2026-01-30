@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any, Callable, Dict, Iterable, List, Optional, Literal
 
 from fim.user.topology import AdvertizedTopology
@@ -175,21 +176,29 @@ class TopologyQueryAPI:
         )
 
     def resources_summary(self, *, id_token: str = None, level: int = 2,
-                           resource_type: str = None) -> Optional[Dict[str, Any]]:
+                          force_refresh: bool = False,
+                          start: Optional[datetime] = None,
+                          end: Optional[datetime] = None,
+                          includes: Optional[List[str]] = None,
+                          excludes: Optional[List[str]] = None,
+                          resource_type: str = None
+                          ) -> Optional[Dict[str, Any]]:
         """
         Try to get resources summary (JSON) from the orchestrator.
         Returns None if the endpoint is not available.
         """
         try:
             if not id_token:
-                token = self._resolve_token(id_token)
+                id_token = self._resolve_token(id_token)
             if id_token:
                 return self.orch.resources_summary(
-                    token=id_token, level=level, resource_type=resource_type
+                    token=id_token, level=level, force_refresh=force_refresh, resource_type=resource_type,
+                    start=start, end=end, includes=includes, excludes=excludes
                 )
             else:
                 return self.orch.portal_resources_summary(
-                    level=level, resource_type=resource_type
+                    level=level, force_refresh=force_refresh, resource_type=resource_type,
+                    start=start, end=end, includes=includes, excludes=excludes
                 )
         except Exception:
             self.log.debug("resources_summary endpoint not available, falling back to graph-based path")
@@ -216,6 +225,11 @@ class TopologyQueryAPI:
         self,
         *,
         id_token: Optional[str] = None,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        includes: Optional[List[str]] = None,
+        excludes: Optional[List[str]] = None,
+        force_refresh: bool = False,
         filters: FilterFunc = None,
         limit: Optional[int] = None,
         offset: int = 0
@@ -263,13 +277,19 @@ class TopologyQueryAPI:
 
         :param id_token: Optional authentication token. If not provided and the object has
                         ensure_valid_id_token(), it will be called automatically.
+        :param start: start time
+        :param end: end time
+        :param includes: list of site names to include
+        :param excludes: list of site names to exclude
+        :param force_refresh: Force to retrieve current available resource information.
         :param filters: Optional lambda function string to filter sites (see examples above)
         :param limit: Maximum number of results to return
         :param offset: Number of results to skip
         :return: List of site records matching the filter
         """
         token = self._resolve_token(id_token)
-        summary = self.resources_summary(id_token=token, level=2, resource_type="sites")
+        summary = self.resources_summary(id_token=token, level=2, resource_type="sites", force_refresh=force_refresh,
+                                         start=start, end=end, includes=includes, excludes=excludes)
         if summary and "sites" in summary:
             items = summary["sites"]
             items = _apply_filters(items, filters)
@@ -280,6 +300,11 @@ class TopologyQueryAPI:
         self,
         *,
         id_token: Optional[str] = None,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        includes: Optional[List[str]] = None,
+        excludes: Optional[List[str]] = None,
+        force_refresh: bool = False,
         filters: FilterFunc = None,
         limit: Optional[int] = None,
         offset: int = 0
@@ -337,13 +362,20 @@ class TopologyQueryAPI:
 
         :param id_token: Optional authentication token. If not provided and the object has
                         ensure_valid_id_token(), it will be called automatically.
+        :param start: start time
+        :param end: end time
+        :param includes: list of site names to include
+        :param excludes: list of site names to exclude
+        :param force_refresh: Force to retrieve current available resource information.
         :param filters: Optional lambda function string to filter hosts (see examples above)
         :param limit: Maximum number of results to return
         :param offset: Number of results to skip
         :return: List of host records matching the filter
         """
         token = self._resolve_token(id_token)
-        summary = self.resources_summary(id_token=token, level=2, resource_type="hosts")
+        summary = self.resources_summary(id_token=token, level=2, resource_type="hosts",
+                                         force_refresh=force_refresh, start=start, end=end,
+                                         includes=includes, excludes=excludes,)
         if summary and "hosts" in summary:
             items = summary["hosts"]
             items = _apply_filters(items, filters)
@@ -354,6 +386,11 @@ class TopologyQueryAPI:
         self,
         *,
         id_token: Optional[str] = None,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        includes: Optional[List[str]] = None,
+        excludes: Optional[List[str]] = None,
+        force_refresh: bool = False,
         filters: FilterFunc = None,
         limit: Optional[int] = None,
         offset: int = 0
@@ -410,13 +447,20 @@ class TopologyQueryAPI:
 
         :param id_token: Optional authentication token. If not provided and the object has
                         ensure_valid_id_token(), it will be called automatically.
+        :param start: start time
+        :param end: end time
+        :param includes: list of site names to include
+        :param excludes: list of site names to exclude
+        :param force_refresh: Force to retrieve current available resource information.
         :param filters: Optional lambda function string to filter facility ports (see examples above)
         :param limit: Maximum number of results to return
         :param offset: Number of results to skip
         :return: List of facility port records matching the filter
         """
         token = self._resolve_token(id_token)
-        summary = self.resources_summary(id_token=token, level=2, resource_type="facility_ports")
+        summary = self.resources_summary(id_token=token, level=2, resource_type="facility_ports",
+                                         force_refresh=force_refresh, start=start, end=end,
+                                         includes=includes, excludes=excludes)
         if summary and "facility_ports" in summary:
             items = summary["facility_ports"]
             items = _apply_filters(items, filters)
@@ -427,6 +471,11 @@ class TopologyQueryAPI:
         self,
         *,
         id_token: Optional[str] = None,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        includes: Optional[List[str]] = None,
+        excludes: Optional[List[str]] = None,
+        force_refresh: bool = False,
         filters: FilterFunc = None,
         limit: Optional[int] = None,
         offset: int = 0
@@ -480,13 +529,20 @@ class TopologyQueryAPI:
 
         :param id_token: Optional authentication token. If not provided and the object has
                         ensure_valid_id_token(), it will be called automatically.
+        :param start: start time
+        :param end: end time
+        :param includes: list of site names to include
+        :param excludes: list of site names to exclude
+        :param force_refresh: Force to retrieve current available resource information.
         :param filters: Optional lambda function string to filter links (see examples above)
         :param limit: Maximum number of results to return
         :param offset: Number of results to skip
         :return: List of link records matching the filter
         """
         token = self._resolve_token(id_token)
-        summary = self.resources_summary(id_token=token, level=2, resource_type="links")
+        summary = self.resources_summary(id_token=token, level=2, resource_type="links",
+                                         force_refresh=force_refresh, start=start, end=end,
+                                         includes=includes, excludes=excludes)
         if summary and "links" in summary:
             items = summary["links"]
             items = _apply_filters(items, filters)
