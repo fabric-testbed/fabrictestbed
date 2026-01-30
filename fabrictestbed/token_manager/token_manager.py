@@ -20,266 +20,196 @@
 # LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
+#
+#
 # Author: Komal Thareja (kthare10@renci.org)
-
-"""
-Token management utilities for FABRIC clients.
-
-This module defines :class:`TokenManager`, which manages FABRIC identity and
-refresh tokens. It supports both legacy **file-based** token handling and
-modern **in-memory** (MCP-friendly) workflows.
-
-Typical usage (MCP/in-memory)::
-
-    tm = TokenManager(
-        token_location=None,
-        cm_host="cm.fabric-testbed.net",
-        id_token=passed_in_id_token,
-        refresh_token=maybe_refresh_token,
-        no_write=True,
-    )
-    token = tm.ensure_valid_id_token()
-
-Typical usage (legacy/file-based)::
-
-    tm = TokenManager(
-        token_location="/path/to/tokens.json",
-        cm_host="cm.fabric-testbed.net",
-        scope="all",
-    )
-    token = tm.ensure_valid_id_token()
-"""
-
-from __future__ import annotations
 import json
 import logging
 import os
+from abc import ABC
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Tuple, Union, List, Dict, Any
+from typing import Tuple, List, Union, Any
 
 from fabric_cm.credmgr.credmgr_proxy import CredmgrProxy, Status, TokenType
-
 from fabrictestbed.slice_manager import CmStatus
-from fabrictestbed.util.constants import Constants
+
 from fabrictestbed.util.utils import Utils
+
+from fabrictestbed.util.constants import Constants
+
 
 class TokenManagerException(Exception):
     pass
 
-class TokenManager:
-    """
-    Manage FABRIC identity and refresh tokens (file-based or in-memory).
 
-    The manager supports two modes:
+class TokenManager(ABC):
+    def __init__(self, *, cm_host: str = None, token_location: str = None, project_id: str = None, scope: str = "all",
+                 project_name: str = None, auto_refresh: bool = True, initialize: bool = True):
+        """
+        Initialize a TokenManager instance.
 
-    1. **File-based (legacy)** — provide ``token_location`` path to a JSON file.
-       Tokens are read/written on disk.
+        This constructor sets up the TokenManager with the necessary parameters for managing tokens, including
+        optional initialization of the manager. It also configures settings related to the project and scope.
 
-    2. **In-memory (MCP-friendly)** — provide ``id_token`` and optionally
-       ``refresh_token``; all file I/O is skipped.
-
-    :param token_location: Path to tokens JSON file (legacy mode). Use ``None`` for MCP mode.
-    :type token_location: str or None
-    :param cm_host: Credential Manager hostname (e.g., ``cm.fabric-testbed.net``)
-    :type cm_host: str
-    :param scope: Token scope (e.g., ``"all"`` or ``"project"``)
-    :type scope: str
-    :param project_id: Optional project UUID
-    :type project_id: str or None
-    :param project_name: Optional project name
-    :type project_name: str or None
-    :param user_id: Optional user UUID
-    :type user_id: str or None
-    :param user_email: Optional user email
-    :type user_email: str or None
-    :param id_token: Optional in-memory ID token (JWT)
-    :type id_token: str or None
-    :param refresh_token: Optional in-memory refresh token
-    :type refresh_token: str or None
-    :param no_write: If True, suppress file writes (for MCP usage)
-    :type no_write: bool
-    :param auto_refresh: (Optional) A flag indicating whether the token should be automatically refreshed
+        @param cm_host: (Optional) The host address of the credential manager. If not provided, it may be
+                        retrieved from environment variables or other sources.
+        @param token_location: (Optional) The location of the token file. This is where the token is stored
+                               or retrieved from.
+        @param project_id: (Optional) The ID of the project associated with the token. This can be used to
+                           filter or manage tokens for a specific project.
+        @param scope: (Optional) The scope of the token's validity. Defaults to "all". It determines the
+                      extent or range of access the token provides.
+        @param project_name: (Optional) The name of the project associated with the token. This can be used
+                             to filter or manage tokens for a specific project.
+        @param auto_refresh: (Optional) A flag indicating whether the token should be automatically refreshed
                               when it expires. Defaults to True.
-    :type auto_refresh: bool
+        @param initialize: (Optional) A flag indicating whether the manager should be initialized upon
+                            creation. Defaults to True. If set to False, initialization tasks are skipped.
 
-    :raises TokenManagerException: on refresh or token handling failures
-    """
+        @return: None
+        """
 
-    def __init__(
-        self,
-        *,
-        token_location: Optional[str],
-        cm_host: str,
-        scope: str = "all",
-        project_id: Optional[str] = None,
-        project_name: Optional[str] = None,
-        user_id: Optional[str] = None,
-        user_email: Optional[str] = None,
-        id_token: Optional[str] = None,
-        refresh_token: Optional[str] = None,
-        no_write: bool = False,
-        auto_refresh: bool = True,
-    ):
-        self.cm_host = cm_host
-        self.scope = scope
-        self.project_id = project_id
-        self.project_name = project_name
-        self.user_id = user_id
-        self.user_email = user_email
-        self.token_location = token_location
-        self.no_write = no_write
         self.auto_refresh = auto_refresh
+        self.logger = logging.getLogger()
+        self.initialized = False
+        if cm_host is None:
+            cm_host = os.environ.get(Constants.FABRIC_CREDMGR_HOST)
         self.cm_proxy = CredmgrProxy(credmgr_host=cm_host)
-        self.tokens: Dict[str, Any] = {}
+        self.token_location = token_location
+        self.tokens = {}
+        self.project_id = project_id
+        if self.project_id is None:
+            self.project_id = os.environ.get(Constants.FABRIC_PROJECT_ID)
+        self.project_name = project_name
+        if self.project_name is None:
+            self.project_name = os.environ.get(Constants.FABRIC_PROJECT_NAME)
+        self.scope = scope
+        if self.token_location is None:
+            self.token_location = os.environ.get(Constants.FABRIC_TOKEN_LOCATION)
 
-        if id_token:
-            self.tokens[CredmgrProxy.ID_TOKEN] = id_token
-        if refresh_token:
-            self.tokens[CredmgrProxy.REFRESH_TOKEN] = refresh_token
+        if cm_host is None or self.token_location is None:
+            raise TokenManagerException(f"Invalid initialization parameters: cm_host: {cm_host}, "
+                                        f"token_location: {self.token_location}")
 
-        if not self.tokens.get(CredmgrProxy.ID_TOKEN):
-            self._load_tokens(refresh=True)
+        # Try to load the project_id or project_name from the Token
+        if project_id is None and project_name is None:
+            self._extract_project_and_user_info_from_token(cm_host=cm_host)
 
-        try:
-            self._extract_project_and_user_info_from_token(cm_host=self.cm_host)
-        except Exception as e:
-            logging.debug(f"Non-fatal: could not decode id_token for project/user info: {e}")
+        # Validate the required parameters are set
+        if self.project_id is None and self.project_name is None:
+            raise TokenManagerException(f"Invalid initialization parameters: project_id={self.project_id}, "
+                                        f"project_name={self.project_name}")
 
-    # ------------------------------------------------------------------
-    # Accessors
-    # ------------------------------------------------------------------
+        self.user_id = None
+        self.user_email = None
 
-    def get_id_token(self) -> Optional[str]:
+        if initialize:
+            self.initialize()
+
+    def initialize(self):
         """
-        Retrieve the current ID token.
-
-        :return: The ID token string if available, otherwise ``None``.
-        :rtype: str or None
+        Initialize the Slice Manager object
+        - Load the tokens
+        - Refresh if needed
         """
-        return self.tokens.get(CredmgrProxy.ID_TOKEN)
+        if not self.initialized:
+            self._load_tokens()
+            self.initialized = True
 
-    def get_refresh_token(self) -> Optional[str]:
+    def _check_initialized(self):
         """
-        Retrieve the current refresh token.
-
-        :return: The refresh token string if available, otherwise ``None``.
-        :rtype: str or None
+        Check if Slice Manager has been initialized
+        @raises Exception if slice manager has been initialized
         """
-        return self.tokens.get(CredmgrProxy.REFRESH_TOKEN)
+        if not self.initialized:
+            raise TokenManagerException("Fabric Client has not been initialized!")
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _load_tokens(self, refresh: bool = True) -> None:
+    def get_refresh_token(self) -> str:
         """
-        Load tokens from file or environment.
-
-        If an in-memory ``id_token`` already exists, this method is a no-op.
-
-        :param refresh: Reserved for compatibility (currently unused)
-        :type refresh: bool
+        Get Refresh Token
+        @return refresh token
         """
-        if self.tokens.get(CredmgrProxy.ID_TOKEN):
-            return
+        return self.tokens.get(CredmgrProxy.REFRESH_TOKEN, None)
 
-        if self.token_location and os.path.exists(self.token_location):
-            try:
-                with open(self.token_location, "r") as stream:
-                    self.tokens = json.loads(stream.read()) or {}
-            except Exception as e:
-                logging.warning(f"Failed to read token file {self.token_location}: {e}")
-                self.tokens = {}
+    def get_id_token(self) -> str:
+        """
+        Get Id token
+        @return id token
+        """
+        return self.tokens.get(CredmgrProxy.ID_TOKEN, None)
+
+    def set_token_location(self, *, token_location: str):
+        """
+        Set token location: path of the file where tokens should be saved
+        @param token_location file name along with complete path where tokens should be stored
+        """
+        self.token_location = token_location
+
+    def _extract_project_and_user_info_from_token(self, cm_host: str):
+        """
+        Extract project and user information from the identity token.
+
+        This method determines the project ID, project name, user ID, and user email
+        by decoding the identity token, if these details are not explicitly provided.
+
+        @param: cm_host (str): The hostname of the credential manager (CM) to be used for decoding the token.
+
+        Notes:
+            - This method assumes that tokens have already been loaded.
+            - If project and user information is successfully extracted from the token, it will be stored in the
+              instance variables `project_id`, `project_name`, `user_id`, and `user_email`.
+        """
+        self._load_tokens(refresh=False)
+        if self.get_id_token() is not None:
+            logging.info("Project Id/Name not specified, trying to determine it from the token")
+            decoded_token = Utils.decode_token(cm_host=cm_host, token=self.get_id_token())
+            if decoded_token.get("projects") and len(decoded_token.get("projects")):
+                self.project_id = decoded_token.get("projects")[0].get("uuid")
+                self.project_name = decoded_token.get("projects")[0].get("name")
+            self.user_id = decoded_token.get("uuid")
+            self.user_email = decoded_token.get("email")
+
+    def _load_tokens(self, refresh: bool = True):
+        """
+        Load Fabric Tokens from the tokens.json if it exists
+        Otherwise, this is the first attempt, create the tokens and save them
+        @note this function is invoked when reloading the tokens to ensure tokens
+        from the token file are read instead of the local variables
+        """
+        # Load the tokens from the JSON
+        if os.path.exists(self.token_location):
+            with open(self.token_location, 'r') as stream:
+                self.tokens = json.loads(stream.read())
             refresh_token = self.get_refresh_token()
         else:
+            # First time login, use environment variable to load the tokens
             refresh_token = os.environ.get(Constants.CILOGON_REFRESH_TOKEN)
-         # Renew the tokens to ensure any project_id changes are taken into account
+        # Renew the tokens to ensure any project_id changes are taken into account
         if refresh and self.auto_refresh and refresh_token:
             self.refresh_tokens(refresh_token=refresh_token)
 
-    def _extract_project_and_user_info_from_token(self, cm_host: str) -> None:
+    def _should_renew(self) -> bool:
         """
-        Decode ``id_token`` to populate project/user attributes if missing.
-
-        :param cm_host: Credential Manager hostname for decoding
-        :type cm_host: str
+        Check if tokens should be renewed
+        Returns true if tokens are at least 30 minutes old
+        @return true if tokens should be renewed; false otherwise
         """
-        if self.project_id and self.project_name and self.user_id and self.user_email:
-            return
+        self._check_initialized()
 
-        tok = self.get_id_token()
-        if not tok:
-            return
+        id_token = self.get_id_token()
+        created_at = self.tokens.get(CredmgrProxy.CREATED_AT, None)
 
-        decoded_token = Utils.decode_token(cm_host=cm_host, token=tok) or {}
-        self.project_id = self.project_id or decoded_token.get("project_id")
-        self.project_name = self.project_name or decoded_token.get("project_name")
-        self.user_id = self.user_id or decoded_token.get("uuid")
-        self.user_email = self.user_email or decoded_token.get("email")
+        created_at_time = datetime.strptime(created_at, CredmgrProxy.TIME_FORMAT)
+        now = datetime.now(timezone.utc)
 
-    # ------------------------------------------------------------------
-    # Introspection helpers
-    # ------------------------------------------------------------------
+        if id_token is None or now - created_at_time >= timedelta(minutes=180):
+            return True
 
-    def id_token_issued_at(self) -> Optional[datetime]:
-        """
-        Return when the ID token was issued, if determinable.
+        return False
 
-        :return: Datetime of issuance or ``None`` if unavailable.
-        :rtype: datetime or None
-        """
-        created_at = self.tokens.get("created_at")
-        if created_at:
-            try:
-                return datetime.strptime(created_at, CredmgrProxy.TIME_FORMAT)
-            except Exception:
-                pass
-
-        try:
-            claims = Utils.decode_token(cm_host=self.cm_host, token=self.get_id_token()) or {}
-            iat = claims.get("iat")
-            if iat:
-                return datetime.fromtimestamp(int(iat), timezone.utc)
-        except Exception:
-            pass
-        return None
-
-    def id_token_expires_at(self) -> Optional[datetime]:
-        """
-        Return when the ID token was issued, if determinable.
-
-        :return: Datetime of issuance or ``None`` if unavailable.
-        :rtype: datetime or None
-        """
-        expires_at = self.tokens.get("expires_at")
-        if expires_at:
-            try:
-                return datetime.strptime(expires_at, CredmgrProxy.TIME_FORMAT)
-            except Exception:
-                pass
-
-        try:
-            claims = Utils.decode_token(cm_host=self.cm_host, token=self.get_id_token()) or {}
-            exp = claims.get("exp")
-            if exp:
-                return datetime.fromtimestamp(int(exp), timezone.utc)
-        except Exception:
-            pass
-        return None
-
-    # ------------------------------------------------------------------
-    # Token lifecycle
-    # ------------------------------------------------------------------
-
-    def create_token(self,
-                     scope: str = "all",
-                     project_id: str = None,
-                     project_name: str = None,
-                     file_name: str = None,
-                     life_time_in_hours: int = 4,
-                     comment: str = "Created via API",
-                     browser_name: str = "chrome"
-                     ) -> Tuple[Status, Union[dict, TokenManagerException]]:
+    def create_token(self, scope: str = "all", project_id: str = None, project_name: str = None, file_name: str = None,
+                     life_time_in_hours: int = 4, comment: str = "Created via API",
+                     browser_name: str = "chrome") -> Tuple[Status, Union[dict, TokenManagerException]]:
         """
         Create token
         @param project_id: Project Id
@@ -293,146 +223,94 @@ class TokenManager:
         @raises Exception in case of failure
         """
         try:
-            return self.cm_proxy.create(scope=scope,
-                                        project_id=project_id,
-                                        project_name=project_name,
-                                        file_name=file_name,
-                                        life_time_in_hours=life_time_in_hours,
-                                        comment=comment,
+            return self.cm_proxy.create(scope=scope, project_id=project_id, project_name=project_name,
+                                        file_name=file_name, life_time_in_hours=life_time_in_hours, comment=comment,
                                         browser_name=browser_name)
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
             return Status.FAILURE, TokenManagerException(error_message)
 
-
     def refresh_tokens(self, *, refresh_token: str) -> Tuple[str, str]:
         """
-        Refresh the tokens via Credential Manager.
-
-        In MCP mode, tokens are updated in memory and not written to disk.
-
-        :param refresh_token: Refresh token used to obtain a new ID token.
-        :type refresh_token: str
-        :return: Tuple of (new_id_token, new_refresh_token)
-        :rtype: tuple(str, str)
-        :raises TokenManagerException: If the refresh operation fails.
+        Refresh tokens
+        User is expected to invoke refresh token API before invoking any other APIs to ensure the token is not expired.
+        User is also expected to update the returned refresh token in the JupyterHub environment.
+        @returns tuple of id token and refresh token
+        @note this exposes an API for the user to refresh tokens explicitly only. CredMgrProxy::refresh already
+        updates the refresh tokens to the token file atomically.
         """
         try:
-            status, tokens = self.cm_proxy.refresh(
-                project_id=self.project_id,
-                scope=self.scope,
-                refresh_token=refresh_token,
-                file_name=(None if (self.no_write or not self.token_location) else self.token_location),
-                project_name=self.project_name,
-            )
+            status, tokens = self.cm_proxy.refresh(project_id=self.project_id, scope=self.scope,
+                                                   refresh_token=refresh_token, file_name=self.token_location,
+                                                   project_name=self.project_name)
             if status == CmStatus.OK:
-                self.tokens[CredmgrProxy.ID_TOKEN] = tokens.get(CredmgrProxy.ID_TOKEN)
-                self.tokens[CredmgrProxy.REFRESH_TOKEN] = tokens.get(CredmgrProxy.REFRESH_TOKEN)
-                return (
-                    self.tokens.get(CredmgrProxy.ID_TOKEN),
-                    self.tokens.get(CredmgrProxy.REFRESH_TOKEN),
-                )
-            raise TokenManagerException(f"Refresh failed: {tokens}")
+                self.tokens = tokens
+                return tokens.get(CredmgrProxy.ID_TOKEN, None), tokens.get(CredmgrProxy.REFRESH_TOKEN, None)
+            else:
+                error_message = Utils.extract_error_message(exception=tokens)
+                raise TokenManagerException(error_message)
         except Exception as e:
-            msg = Utils.extract_error_message(exception=e)
-            raise TokenManagerException(msg)
+            error_message = Utils.extract_error_message(exception=e)
+            raise TokenManagerException(error_message)
 
-    def revoke_token(
-        self,
-        *,
-        refresh_token: str = None,
-        id_token: str = None,
-        token_hash: str = None,
-        token_type: TokenType = TokenType.Refresh
-    ) -> Tuple[Status, Union[TokenManagerException, str]]:
+    def revoke_token(self, *, refresh_token: str = None, id_token: str = None, token_hash: str = None,
+                     token_type: TokenType = TokenType.Refresh) -> Tuple[Status, Any]:
         """
-        Revoke a token using the Credential Manager.
+        Revoke a refresh token
+        @param refresh_token Refresh Token to be revoked
+        @param id_token Identity Token
+        @param token_hash Token Hash
+        @param token_type type of the token being revoked
+        @return Tuple of the status and revoked refresh token
+        """
+        if refresh_token is None:
+            refresh_token = self.get_refresh_token()
+        if id_token is None:
+            id_token = self.get_id_token()
+        if token_hash is None:
+            token_hash = Utils.generate_sha256(token=id_token)
 
-        :param refresh_token: Refresh token to revoke (optional)
-        :type refresh_token: str or None
-        :param id_token: Identity token to revoke (optional)
-        :type id_token: str or None
-        :param token_hash: Precomputed SHA-256 hash (optional)
-        :type token_hash: str or None
-        :param token_type type of the token being revoked
-        :type token_type: TokenType or None
-        :return: (Status, message_or_exception)
-        :rtype: tuple(Status, Union[TokenManagerException, str])
-        """
         try:
-            if id_token is None:
-                id_token = self.get_id_token()
-            if token_hash is None and id_token:
-                token_hash = Utils.generate_sha256(token=id_token)
-            return self.cm_proxy.revoke(
-                refresh_token=refresh_token,
-                identity_token=id_token,
-                token_hash=token_hash,
-                token_type=token_type,
-            )
+            return self.cm_proxy.revoke(refresh_token=refresh_token, identity_token=id_token, token_hash=token_hash,
+                                        token_type=token_type)
         except Exception as e:
-            msg = Utils.extract_error_message(exception=e)
-            return Status.FAILURE, TokenManagerException(msg)
+            error_message = Utils.extract_error_message(exception=e)
+            return Status.FAILURE, TokenManagerException(error_message)
 
     def token_revoke_list(self, *, project_id: str) -> Tuple[Status, Union[TokenManagerException, List[str]]]:
         """
-        Retrieve the token revoke list for a given project.
-
-        :param project_id: Project UUID
-        :type project_id: str
-        :return: (Status, revoke_list_or_exception)
-        :rtype: tuple(Status, Union[TokenManagerException, list[str]])
+        Get Token Revoke list for a project
+        @param project_id project_id
+        @return token revoke list
         """
         try:
             return self.cm_proxy.token_revoke_list(project_id=project_id)
         except Exception as e:
-            msg = Utils.extract_error_message(exception=e)
-            return Status.FAILURE, TokenManagerException(msg)
+            error_message = Utils.extract_error_message(exception=e)
+            return Status.FAILURE, TokenManagerException(error_message)
 
-    # ------------------------------------------------------------------
-    # Utilities
-    # ------------------------------------------------------------------
-
-    def clear_token_cache(self, *, file_name: Optional[str] = None) -> Tuple[Status, Any]:
+    def clear_token_cache(self, *, file_name: str = None):
         """
-        Clear in-memory tokens and optionally remove the token file.
-
-        :param file_name: Optional file to remove (defaults to ``self.token_location``)
-        :type file_name: str or None
+        Clear the cached token
+        Should be invoked when the user changes projects
+        @return:
         """
-        self.tokens = {}
-        if not self.no_write:
-            path = file_name or self.token_location
-            status, exception = self.cm_proxy.clear_token_cache(file_name=path)
-            if status == CmStatus.OK:
-                return Status.OK, None
-        return Status.FAILURE, f"Failed to clear token cache:"
+        cache_file_name = file_name
+        if cache_file_name is None:
+            cache_file_name = self.token_location
+        status, exception = self.cm_proxy.clear_token_cache(file_name=cache_file_name)
+        if status == CmStatus.OK:
+            return Status.OK, None
+        return Status.FAILURE, f"Failed to clear token cache: {Utils.extract_error_message(exception=exception)}"
 
-    def ensure_valid_id_token(self) -> str:
+    def ensure_valid_token(self) -> str:
         """
-        Ensure a non-expired ID token, refreshing if possible.
-
-        If a refresh token is present and the ID token is near expiry (within 60s),
-        this method refreshes automatically.
-
-        :return: The valid ID token.
-        :rtype: str
-        :raises TokenManagerException: If no token is available or refresh fails.
+        Ensures the token is valid and renews it if required.
+        @return valid identity token
         """
-        tok = self.get_id_token()
-        if not tok:
-            raise TokenManagerException("No id_token available. Provide id_token or configure token file.")
-        if self.auto_refresh:
-            if datetime.now(timezone.utc) >= (self.id_token_expires_at() - timedelta(minutes=30)):
-                rtok = self.get_refresh_token()
-                if rtok:
-                    self.refresh_tokens(refresh_token=rtok)
-                    return self.get_id_token()
-        else:
-            if datetime.now(timezone.utc) >= self.id_token_expires_at():
-                raise TokenManagerException("Token expired")
-
-        return tok
+        if self._should_renew():
+            self._load_tokens()
+        return self.get_id_token()
 
     def get_user_id(self) -> str:
         """
@@ -475,22 +353,3 @@ class TokenManager:
         if not self.project_name and self.get_id_token() and self.cm_proxy:
             self._extract_project_and_user_info_from_token(cm_host=self.cm_proxy.host)
         return self.project_name
-
-    def get_user_info(self, *, uuid: str = None, email: str = None) -> dict:
-        """
-        Retrieve user info by email or uuid.
-
-        :param uuid: User's uuid.
-        :type uuid: str
-        :param email: User's email address.
-        :type email: str
-        :return: User info dict (shape per Core API).
-        :rtype: dict
-        :raises FabricManagerException: On Core API errors.
-        """
-        try:
-            core_api_proxy = CoreApi(core_api_host=self.core_api_host, token=self.ensure_valid_id_token())
-            return core_api_proxy.get_user_info(uuid=uuid, email=email)
-        except Exception as e:
-            error_message = Utils.extract_error_message(exception=e)
-            raise FabricManagerException(error_message)

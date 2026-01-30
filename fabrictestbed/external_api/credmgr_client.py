@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
 
@@ -66,17 +66,169 @@ class TokenDTO:
 
 
 @dataclass(slots=True)
+class ProjectMembershipDTO:
+    is_creator: Optional[bool] = None
+    is_lead: Optional[bool] = None
+    is_member: Optional[bool] = None
+    is_owner: Optional[bool] = None
+    is_token_holder: Optional[bool] = None
+
+    @staticmethod
+    def from_dict(d: Dict[str, Any]) -> "ProjectMembershipDTO":
+        return ProjectMembershipDTO(
+            is_creator=d.get("is_creator"),
+            is_lead=d.get("is_lead"),
+            is_member=d.get("is_member"),
+            is_owner=d.get("is_owner"),
+            is_token_holder=d.get("is_token_holder"),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "is_creator": self.is_creator,
+            "is_lead": self.is_lead,
+            "is_member": self.is_member,
+            "is_owner": self.is_owner,
+            "is_token_holder": self.is_token_holder,
+        }
+
+
+@dataclass(slots=True)
+class ProjectDTO:
+    name: Optional[str] = None
+    uuid: Optional[str] = None
+    tags: List[str] = field(default_factory=list)
+    memberships: Optional[ProjectMembershipDTO] = None
+
+    @staticmethod
+    def from_dict(d: Dict[str, Any]) -> "ProjectDTO":
+        memberships = d.get("memberships") or {}
+        return ProjectDTO(
+            name=d.get("name"),
+            uuid=d.get("uuid"),
+            tags=d.get("tags") or [],
+            memberships=ProjectMembershipDTO.from_dict(memberships) if memberships else None,
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        data: Dict[str, Any] = {
+            "name": self.name,
+            "uuid": self.uuid,
+            "tags": self.tags or [],
+        }
+        if self.memberships is not None:
+            data["memberships"] = self.memberships.to_dict()
+        return data
+
+
+@dataclass(slots=True)
+class RoleDTO:
+    name: Optional[str] = None
+
+    @staticmethod
+    def from_dict(d: Dict[str, Any]) -> "RoleDTO":
+        return RoleDTO(name=d.get("name"))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"name": self.name}
+
+
+@dataclass(slots=True)
 class DecodedTokenDTO:
-    token: Dict[str, Any]
+    token: Dict[str, Any] = field(default_factory=dict)
+    sub: Optional[str] = None
+    iss: Optional[str] = None
+    given_name: Optional[str] = None
+    aud: Optional[str] = None
+    acr: Optional[str] = None
+    azp: Optional[str] = None
+    auth_time: Optional[int] = None
+    name: Optional[str] = None
+    exp: Optional[int] = None
+    iat: Optional[int] = None
+    family_name: Optional[str] = None
+    jti: Optional[str] = None
+    email: Optional[str] = None
+    projects: List[ProjectDTO] = field(default_factory=list)
+    roles: List[RoleDTO] = field(default_factory=list)
+    scope: Optional[str] = None
+    uuid: Optional[str] = None
+
+    @staticmethod
+    def _to_int(value: Any) -> Optional[int]:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> "DecodedTokenDTO":
         # API returns { ..., "token": {...} }
         token = d.get("token") or {}
-        return DecodedTokenDTO(token=token)
+        projects = [ProjectDTO.from_dict(p) for p in (token.get("projects") or [])]
+        roles = [RoleDTO.from_dict(r) for r in (token.get("roles") or [])]
+        return DecodedTokenDTO(
+            token=token,
+            sub=token.get("sub"),
+            iss=token.get("iss"),
+            given_name=token.get("given_name"),
+            aud=token.get("aud"),
+            acr=token.get("acr"),
+            azp=token.get("azp"),
+            auth_time=DecodedTokenDTO._to_int(token.get("auth_time")),
+            name=token.get("name"),
+            exp=DecodedTokenDTO._to_int(token.get("exp")),
+            iat=DecodedTokenDTO._to_int(token.get("iat")),
+            family_name=token.get("family_name"),
+            jti=token.get("jti"),
+            email=token.get("email"),
+            projects=projects,
+            roles=roles,
+            scope=token.get("scope"),
+            uuid=token.get("uuid"),
+        )
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"token": self.token}
+        if self.token:
+            return {"token": self.token}
+        token: Dict[str, Any] = {}
+        if self.sub is not None:
+            token["sub"] = self.sub
+        if self.iss is not None:
+            token["iss"] = self.iss
+        if self.given_name is not None:
+            token["given_name"] = self.given_name
+        if self.aud is not None:
+            token["aud"] = self.aud
+        if self.acr is not None:
+            token["acr"] = self.acr
+        if self.azp is not None:
+            token["azp"] = self.azp
+        if self.auth_time is not None:
+            token["auth_time"] = self.auth_time
+        if self.name is not None:
+            token["name"] = self.name
+        if self.exp is not None:
+            token["exp"] = self.exp
+        if self.iat is not None:
+            token["iat"] = self.iat
+        if self.family_name is not None:
+            token["family_name"] = self.family_name
+        if self.jti is not None:
+            token["jti"] = self.jti
+        if self.email is not None:
+            token["email"] = self.email
+        if self.projects:
+            token["projects"] = [p.to_dict() for p in self.projects]
+        if self.roles:
+            token["roles"] = [r.to_dict() for r in self.roles]
+        if self.scope is not None:
+            token["scope"] = self.scope
+        if self.uuid is not None:
+            token["uuid"] = self.uuid
+        return {"token": token}
 
 
 # =========================
@@ -516,4 +668,3 @@ class CredmgrClient:
             return {}
         with open(path, "r") as f:
             return json.load(f)
-
