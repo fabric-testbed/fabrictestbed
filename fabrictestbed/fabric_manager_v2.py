@@ -965,7 +965,7 @@ class FabricManagerV2(TopologyQueryAPI):
     def get_user_keys(
         self,
         *,
-        user_uuid: str,
+        user_uuid: Optional[str] = None,
         id_token: Optional[str] = None,
         key_type_filter: Optional[str] = None,
     ) -> List[Dict[str, Any]]:

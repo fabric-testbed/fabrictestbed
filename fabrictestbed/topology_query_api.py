@@ -136,7 +136,7 @@ class TopologyQueryAPI:
     def resources(
         self,
         *,
-        id_token: str,
+        id_token: Optional[str] = None,
         level: int = 1,
         force_refresh: bool = False,
         start_date: Optional[str] = None,
@@ -144,6 +144,9 @@ class TopologyQueryAPI:
         includes: Optional[List[str]] = None,
         excludes: Optional[List[str]] = None,
     ) -> AdvertizedTopology:
+        if not id_token:
+            id_token = self._resolve_token(id_token)
+
         return self.orch.resources(
             token=id_token,
             level=level,
