@@ -21,6 +21,20 @@ from fim.user.topology import ExperimentTopology, AdvertizedTopology
 
 
 # ===========================
+# Helpers
+# ===========================
+
+def _safe_json_loads(value: Any) -> Any:
+    """Parse a JSON-encoded string into a Python object; return *value* unchanged otherwise."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except (json.JSONDecodeError, TypeError):
+            return value
+    return value
+
+
+# ===========================
 # Dataclasses (DTOs)
 # ===========================
 
@@ -71,6 +85,125 @@ class SliceDTO:
 
 
 @dataclass(slots=True)
+class InterfaceDTO:
+    name: Optional[str] = None
+    type: Optional[str] = None
+    capacities: Optional[Dict[str, Any]] = None
+    labels: Optional[Dict[str, Any]] = None
+    label_allocations: Optional[Dict[str, Any]] = None
+    stitch_node: Optional[bool] = None
+    user_data: Optional[Dict[str, Any]] = None
+    node_map: Optional[List[Any]] = None
+
+    @staticmethod
+    def from_dict(d: Dict[str, Any]) -> "InterfaceDTO":
+        return InterfaceDTO(
+            name=d.get("Name"),
+            type=d.get("Type"),
+            capacities=_safe_json_loads(d.get("Capacities")),
+            labels=_safe_json_loads(d.get("Labels")),
+            label_allocations=_safe_json_loads(d.get("LabelAllocations")),
+            stitch_node=d.get("StitchNode"),
+            user_data=_safe_json_loads(d.get("UserData")),
+            node_map=d.get("NodeMap"),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "Name": self.name,
+            "Type": self.type,
+            "Capacities": json.dumps(self.capacities) if isinstance(self.capacities, dict) else self.capacities,
+            "Labels": json.dumps(self.labels) if isinstance(self.labels, dict) else self.labels,
+            "LabelAllocations": json.dumps(self.label_allocations) if isinstance(self.label_allocations, dict) else self.label_allocations,
+            "StitchNode": self.stitch_node,
+            "UserData": json.dumps(self.user_data) if isinstance(self.user_data, dict) else self.user_data,
+            "NodeMap": self.node_map,
+        }
+
+
+@dataclass(slots=True)
+class NetworkServiceDTO:
+    name: Optional[str] = None
+    type: Optional[str] = None
+    layer: Optional[str] = None
+    site: Optional[str] = None
+    stitch_node: Optional[bool] = None
+    interfaces: Optional[List[InterfaceDTO]] = None
+
+    @staticmethod
+    def from_dict(d: Dict[str, Any]) -> "NetworkServiceDTO":
+        raw_ifs = d.get("Interfaces") or []
+        return NetworkServiceDTO(
+            name=d.get("Name"),
+            type=d.get("Type"),
+            layer=d.get("Layer"),
+            site=d.get("Site"),
+            stitch_node=d.get("StitchNode"),
+            interfaces=[InterfaceDTO.from_dict(i) for i in raw_ifs],
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "Name": self.name,
+            "Type": self.type,
+            "Layer": self.layer,
+            "Site": self.site,
+            "StitchNode": self.stitch_node,
+            "Interfaces": [i.to_dict() for i in (self.interfaces or [])],
+        }
+
+
+@dataclass(slots=True)
+class ComponentDTO:
+    name: Optional[str] = None
+    type: Optional[str] = None
+    model: Optional[str] = None
+    details: Optional[str] = None
+    capacities: Optional[Dict[str, Any]] = None
+    capacity_allocations: Optional[Dict[str, Any]] = None
+    labels: Optional[Dict[str, Any]] = None
+    label_allocations: Optional[Dict[str, Any]] = None
+    stitch_node: Optional[bool] = None
+    user_data: Optional[Dict[str, Any]] = None
+    node_map: Optional[List[Any]] = None
+    network_services: Optional[List[NetworkServiceDTO]] = None
+
+    @staticmethod
+    def from_dict(d: Dict[str, Any]) -> "ComponentDTO":
+        raw_ns = d.get("NetworkServices") or []
+        return ComponentDTO(
+            name=d.get("Name"),
+            type=d.get("Type"),
+            model=d.get("Model"),
+            details=d.get("Details"),
+            capacities=_safe_json_loads(d.get("Capacities")),
+            capacity_allocations=_safe_json_loads(d.get("CapacityAllocations")),
+            labels=_safe_json_loads(d.get("Labels")),
+            label_allocations=_safe_json_loads(d.get("LabelAllocations")),
+            stitch_node=d.get("StitchNode"),
+            user_data=_safe_json_loads(d.get("UserData")),
+            node_map=d.get("NodeMap"),
+            network_services=[NetworkServiceDTO.from_dict(ns) for ns in raw_ns],
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "Name": self.name,
+            "Type": self.type,
+            "Model": self.model,
+            "Details": self.details,
+            "Capacities": json.dumps(self.capacities) if isinstance(self.capacities, dict) else self.capacities,
+            "CapacityAllocations": json.dumps(self.capacity_allocations) if isinstance(self.capacity_allocations, dict) else self.capacity_allocations,
+            "Labels": json.dumps(self.labels) if isinstance(self.labels, dict) else self.labels,
+            "LabelAllocations": json.dumps(self.label_allocations) if isinstance(self.label_allocations, dict) else self.label_allocations,
+            "StitchNode": self.stitch_node,
+            "UserData": json.dumps(self.user_data) if isinstance(self.user_data, dict) else self.user_data,
+            "NodeMap": self.node_map,
+            "NetworkServices": [ns.to_dict() for ns in (self.network_services or [])],
+        }
+
+
+@dataclass(slots=True)
 class SliverDTO:
     sliver_id: str
     slice_id: str
@@ -85,9 +218,33 @@ class SliverDTO:
     notice: Optional[str] = None
     owner_user_id: Optional[str] = None
     owner_email: Optional[str] = None
+    # -- typed fields extracted from the raw `sliver` dict --
+    name: Optional[str] = None
+    type: Optional[str] = None
+    site: Optional[str] = None
+    mgmt_ip: Optional[str] = None
+    image_ref: Optional[str] = None
+    layer: Optional[str] = None
+    capacities: Optional[Dict[str, Any]] = None
+    capacity_allocations: Optional[Dict[str, Any]] = None
+    capacity_hints: Optional[Dict[str, Any]] = None
+    labels: Optional[Dict[str, Any]] = None
+    label_allocations: Optional[Dict[str, Any]] = None
+    reservation_info: Optional[Dict[str, Any]] = None
+    gateway: Optional[Dict[str, Any]] = None
+    stitch_node: Optional[bool] = None
+    user_data: Optional[Dict[str, Any]] = None
+    node_map: Optional[List[Any]] = None
+    components: Optional[List[ComponentDTO]] = None
+    interfaces: Optional[List[InterfaceDTO]] = None
 
     @staticmethod
     def from_dict(d: Dict[str, Any]) -> "SliverDTO":
+        sliver_data = d.get("sliver") or {}
+
+        raw_components = sliver_data.get("Components") or []
+        raw_interfaces = sliver_data.get("Interfaces") or []
+
         return SliverDTO(
             sliver_id=d.get("sliver_id"),
             slice_id=d.get("slice_id"),
@@ -102,6 +259,25 @@ class SliverDTO:
             notice=d.get("notice"),
             owner_user_id=d.get("owner_user_id"),
             owner_email=d.get("owner_email"),
+            # typed fields
+            name=sliver_data.get("Name"),
+            type=sliver_data.get("Type"),
+            site=sliver_data.get("Site"),
+            mgmt_ip=sliver_data.get("MgmtIp"),
+            image_ref=sliver_data.get("ImageRef"),
+            layer=sliver_data.get("Layer"),
+            capacities=_safe_json_loads(sliver_data.get("Capacities")),
+            capacity_allocations=_safe_json_loads(sliver_data.get("CapacityAllocations")),
+            capacity_hints=_safe_json_loads(sliver_data.get("CapacityHints")),
+            labels=_safe_json_loads(sliver_data.get("Labels")),
+            label_allocations=_safe_json_loads(sliver_data.get("LabelAllocations")),
+            reservation_info=_safe_json_loads(sliver_data.get("ReservationInfo")),
+            gateway=_safe_json_loads(sliver_data.get("Gateway")),
+            stitch_node=sliver_data.get("StitchNode"),
+            user_data=_safe_json_loads(sliver_data.get("UserData")),
+            node_map=sliver_data.get("NodeMap"),
+            components=[ComponentDTO.from_dict(c) for c in raw_components],
+            interfaces=[InterfaceDTO.from_dict(i) for i in raw_interfaces],
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -119,6 +295,24 @@ class SliverDTO:
             "notice": self.notice,
             "owner_user_id": self.owner_user_id,
             "owner_email": self.owner_email,
+            "name": self.name,
+            "type": self.type,
+            "site": self.site,
+            "mgmt_ip": self.mgmt_ip,
+            "image_ref": self.image_ref,
+            "layer": self.layer,
+            "capacities": self.capacities,
+            "capacity_allocations": self.capacity_allocations,
+            "capacity_hints": self.capacity_hints,
+            "labels": self.labels,
+            "label_allocations": self.label_allocations,
+            "reservation_info": self.reservation_info,
+            "gateway": self.gateway,
+            "stitch_node": self.stitch_node,
+            "user_data": self.user_data,
+            "node_map": self.node_map,
+            "components": [c.to_dict() for c in (self.components or [])],
+            "interfaces": [i.to_dict() for i in (self.interfaces or [])],
         }
 
 

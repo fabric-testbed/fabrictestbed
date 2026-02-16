@@ -49,7 +49,10 @@ from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Literal, Optional, Union
 
 from fabrictestbed.external_api.credmgr_client import CredmgrClient
-from fabrictestbed.external_api.orchestrator_client import OrchestratorClient, SliverDTO, SliceDTO, PoaDataDTO
+from fabrictestbed.external_api.orchestrator_client import (
+    OrchestratorClient, SliverDTO, SliceDTO, PoaDataDTO,
+    InterfaceDTO, NetworkServiceDTO, ComponentDTO,
+)
 from fabrictestbed.external_api.core_api import CoreApi
 from fabrictestbed.external_api.artifact_manager import ArtifactManager, Visibility
 from fabrictestbed.slice_editor import GraphFormat
