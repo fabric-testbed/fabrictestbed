@@ -5,12 +5,18 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import logging
+import socket
+import threading
 import time
+import webbrowser
 from dataclasses import dataclass, field
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
+from urllib.parse import urlencode, urlparse, parse_qs
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -524,6 +530,205 @@ class CredmgrClient:
 
         tokens = [TokenDTO.from_dict(x) for x in data]
         return [t.to_dict() for t in tokens] if return_fmt == "dict" else tokens
+
+    def create_cli(
+        self,
+        *,
+        scope: str = "all",
+        project_id: Optional[str] = None,
+        project_name: Optional[str] = None,
+        lifetime_hours: int = 4,
+        comment: str = "Create Token via CLI",
+        file_path: Optional[Union[str, Path]] = None,
+        open_browser: bool = True,
+        timeout: int = 300,
+        return_fmt: Literal["dict", "dto"] = "dict",
+    ) -> List[TokenDTO] | List[Dict[str, Any]]:
+        """
+        Create token(s) via browser-based login flow with localhost callback.
+
+        Starts a local HTTP server, opens (or prints) the CM login URL,
+        and waits for the CM to redirect back with token data after the
+        user completes authentication.
+
+        :param scope: Token scope.
+        :param project_id: Project UUID.
+        :param project_name: Project name.
+        :param lifetime_hours: Token lifetime in hours.
+        :param comment: Comment for the token.
+        :param file_path: Optional path to save token JSON.
+        :param open_browser: Whether to attempt opening the browser automatically.
+        :param timeout: Seconds to wait for the user to complete login.
+        :param return_fmt: "dict" or "dto".
+        :return: List of TokenDTO or dicts.
+        """
+        if not project_id and not project_name:
+            raise CredMgrValidationError("project_id or project_name must be specified")
+
+        # Start local callback server
+        result_holder: Dict[str, Any] = {}
+        error_holder: Dict[str, str] = {}
+        server_ready = threading.Event()
+        server = self._start_callback_server(result_holder, error_holder, server_ready)
+        server_ready.wait(timeout=10)
+
+        port = server.server_address[1]
+        redirect_uri = f"http://localhost:{port}/callback"
+
+        # Build the CM create_cli URL
+        params: Dict[str, Any] = {
+            "scope": scope,
+            "lifetime": lifetime_hours,
+            "comment": comment,
+            "redirect_uri": redirect_uri,
+        }
+        if project_id:
+            params["project_id"] = project_id
+        if project_name:
+            params["project_name"] = project_name
+
+        # The create_cli endpoint is behind vouch auth, so the full URL
+        # goes through nginx which handles the login redirect if needed.
+        # base_url is like https://host/credmgr/ -> we need https://host/credmgr/tokens/create_cli
+        login_url = self.base_url + "tokens/create_cli?" + urlencode(params)
+
+        if open_browser:
+            try:
+                opened = webbrowser.open(login_url)
+            except Exception:
+                opened = False
+        else:
+            opened = False
+
+        if opened:
+            self.log.info("Browser opened for authentication")
+        else:
+            self.log.info("Could not open browser automatically")
+
+        # Always print the URL so user can open manually
+        print(f"\nPlease open this URL in your browser to authenticate:\n\n  {login_url}\n")
+        print(f"Waiting for authentication (timeout: {timeout}s)...")
+        print("Press Ctrl+C to enter the authorization code manually.\n")
+
+        # Wait for callback
+        timed_out = False
+        deadline = time.time() + timeout
+        try:
+            while not result_holder and not error_holder and time.time() < deadline:
+                time.sleep(0.5)
+            if not result_holder and not error_holder:
+                timed_out = True
+        except KeyboardInterrupt:
+            timed_out = True
+        finally:
+            server.shutdown()
+
+        if error_holder:
+            raise CredMgrError(f"Authentication failed: {error_holder.get('error', 'unknown error')}")
+
+        if not result_holder and timed_out:
+            # Callback wasn't reached — likely running on a remote VM.
+            # Prompt user to paste the authorization code from the browser.
+            print("\n\nThe CLI did not receive the token automatically.")
+            print("If you are running the CLI on a remote machine, copy the")
+            print("authorization code shown in your browser and paste it below.\n")
+            try:
+                code = input("Authorization code: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                raise CredMgrError("Authentication cancelled.")
+
+            if not code:
+                raise CredMgrError("No authorization code provided.")
+
+            try:
+                decoded = json.loads(base64.urlsafe_b64decode(code + "=="))
+                result_holder.update(decoded)
+            except Exception:
+                raise CredMgrError(
+                    "Invalid authorization code. Please copy the full code "
+                    "from the browser and try again."
+                )
+
+        # Build token from the callback data
+        token_data = {
+            "id_token": result_holder.get("id_token", ""),
+            "refresh_token": result_holder.get("refresh_token", ""),
+            "token_hash": result_holder.get("token_hash", ""),
+            "created_at": result_holder.get("created_at", ""),
+            "expires_at": result_holder.get("expires_at", ""),
+            "state": result_holder.get("state", ""),
+        }
+
+        if file_path:
+            self.save_file(file_path, token_data)
+
+        token = TokenDTO.from_dict(token_data)
+        return [token.to_dict()] if return_fmt == "dict" else [token]
+
+    @staticmethod
+    def _start_callback_server(
+        result_holder: Dict[str, Any],
+        error_holder: Dict[str, str],
+        server_ready: threading.Event,
+    ) -> HTTPServer:
+        """Start a local HTTP server to receive the OAuth callback redirect."""
+
+        class CallbackHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                parsed = urlparse(self.path)
+                params = parse_qs(parsed.query)
+
+                if parsed.path == "/callback":
+                    # Check for error
+                    if "error" in params:
+                        error_holder["error"] = params["error"][0]
+                        self._respond(
+                            "<html><body><h2>Authentication failed</h2>"
+                            f"<p>{params['error'][0]}</p>"
+                            "<p>You can close this window.</p></body></html>"
+                        )
+                        return
+
+                    # Extract token data (query params are lists)
+                    for key in ("id_token", "refresh_token", "token_hash",
+                                "created_at", "expires_at", "state"):
+                        if key in params:
+                            result_holder[key] = params[key][0]
+
+                    self._respond(
+                        "<html><body>"
+                        "<h2>Authentication successful!</h2>"
+                        "<p>Token has been created. You can close this window "
+                        "and return to the terminal.</p>"
+                        "</body></html>"
+                    )
+                else:
+                    self.send_error(404)
+
+            def _respond(self, html: str):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(html.encode())
+
+            def log_message(self, format, *args):
+                # Suppress default stderr logging
+                pass
+
+        # Find a free port
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("localhost", 0))
+            port = s.getsockname()[1]
+
+        server = HTTPServer(("localhost", port), CallbackHandler)
+
+        def serve():
+            server_ready.set()
+            server.serve_forever()
+
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+        return server
 
     def refresh(
         self,

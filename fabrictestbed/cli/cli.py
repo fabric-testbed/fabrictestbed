@@ -95,16 +95,18 @@ def tokens(ctx):
 @click.option('--projectname', default=None, help='Project name')
 @click.option('--lifetime', default=4, help='Token lifetime in hours')
 @click.option('--comment', default=None, help='Comment/note to associate with the token')
-@click.option('--browser', default="chrome", type=click.Choice(['chrome', 'firefox', 'safari', 'edge'],
-                                                               case_sensitive=False),
-              help='Browser to use to launch the web app!')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='scope')
-@click.option('--tokenlocation', help='Location and name of the while in which to store tokens', default=None)
+@click.option('--tokenlocation', help='Location and name of the file in which to store tokens', default=None)
+@click.option('--no-browser', is_flag=True, default=False, help='Do not attempt to open a browser automatically')
 @click.pass_context
 def create(ctx, cmhost: str, projectid: str, projectname: str, lifetime: int, comment: str,
-           browser: str, scope: str, tokenlocation: str):
+           scope: str, tokenlocation: str, no_browser: bool):
     """Create token
+
+    Opens a browser for CILogon authentication (or prints the URL if browser
+    cannot be opened). After login, the token is automatically captured via
+    a localhost callback.
     """
     try:
         if cmhost is None and os.environ.get(Constants.FABRIC_CREDMGR_HOST) is None:
@@ -114,30 +116,36 @@ def create(ctx, cmhost: str, projectid: str, projectname: str, lifetime: int, co
                 os.environ.get(Constants.FABRIC_PROJECT_ID) is None:
             raise click.ClickException(f"Either Project Name or Project Id must be specified!")
 
-        cookie_name = os.getenv(Constants.FABRIC_COOKIE_NAME)
         if cmhost is None:
             cmhost = os.getenv(Constants.FABRIC_CREDMGR_HOST)
 
-        if cookie_name is not None:
-            cm_proxy = CredmgrProxy(credmgr_host=cmhost, cookie_name=cookie_name)
-        else:
-            cm_proxy = CredmgrProxy(credmgr_host=cmhost)
+        cookie_name = os.getenv(Constants.FABRIC_COOKIE_NAME)
 
+        from ..external_api.credmgr_client import CredmgrClient
+        client = CredmgrClient(credmgr_host=cmhost,
+                                cookie_name=cookie_name or "fabric-service")
+
+        if projectid is None:
+            projectid = os.getenv(Constants.FABRIC_PROJECT_ID)
+        if projectname is None:
+            projectname = os.getenv(Constants.FABRIC_PROJECT_NAME)
         if tokenlocation is None:
             tokenlocation = os.getenv(Constants.FABRIC_TOKEN_LOCATION)
+        if tokenlocation is None:
+            tokenlocation = os.path.join(os.getcwd(), "tokens.json")
 
-        status, token_or_exception = cm_proxy.create(project_id=projectid, project_name=projectname,
-                                                     life_time_in_hours=lifetime, comment=comment,
-                                                     browser_name=browser, scope=scope, file_name=tokenlocation)
+        tokens = client.create_cli(
+            scope=scope,
+            project_id=projectid,
+            project_name=projectname,
+            lifetime_hours=lifetime,
+            comment=comment or "Create Token via CLI",
+            file_path=tokenlocation,
+            open_browser=not no_browser,
+            return_fmt="dto",
+        )
 
-        from fabric_cm.credmgr.credmgr_proxy import Status as CmStatus
-        if status == CmStatus.OK:
-            if tokenlocation is None:
-                click.echo(f"Fabric Token: {token_or_exception}")
-            else:
-                click.echo(f"Fabric Token saved at: {tokenlocation}")
-        else:
-            raise click.ClickException(f"{Utils.extract_error_message(exception=token_or_exception)}")
+        click.echo(f"Token saved at: {tokenlocation}")
     except click.ClickException as e:
         raise e
     except Exception as e:
