@@ -106,6 +106,89 @@ def __resolve_cmhost(cmhost: str) -> str:
     return cmhost
 
 
+def _fmt_number(n) -> str:
+    """Format a number with comma separators, or return '—' for None."""
+    if n is None:
+        return "—"
+    if isinstance(n, float) and n == int(n):
+        n = int(n)
+    return f"{n:,}"
+
+
+def _print_slices(slices_list):
+    """Print slices in a compact, human-readable table."""
+    if not slices_list:
+        click.echo("No slices found.")
+        return
+    for s in slices_list:
+        state = s.get("state", "Unknown")
+        name = s.get("name", "—")
+        sid = s.get("slice_id", "—")
+        proj = s.get("project_name") or s.get("project_id") or "—"
+        lease_end = s.get("lease_end_time") or "—"
+        click.echo(f"  {name} [{state}]  id={sid}")
+        click.echo(f"      project: {proj}  lease_end: {lease_end}")
+
+
+def _print_slivers(slivers_list):
+    """Print slivers in a compact, human-readable format."""
+    if not slivers_list:
+        click.echo("No slivers found.")
+        return
+    for sv in slivers_list:
+        name = sv.get("name") or "—"
+        stype = sv.get("type") or sv.get("sliver_type") or "—"
+        site = sv.get("site") or "—"
+        state = sv.get("state") or "—"
+        sid = sv.get("sliver_id") or "—"
+        mgmt_ip = sv.get("mgmt_ip")
+
+        header = f"  {name} [{stype}] @ {site}  state={state}  id={sid}"
+        if mgmt_ip:
+            header += f"  mgmt_ip={mgmt_ip}"
+        click.echo(header)
+
+        cap = sv.get("capacities")
+        if cap and isinstance(cap, dict):
+            parts = []
+            if "core" in cap:
+                parts.append(f"core: {_fmt_number(cap['core'])}")
+            if "ram" in cap:
+                parts.append(f"ram: {_fmt_number(cap['ram'])} G")
+            if "disk" in cap:
+                parts.append(f"disk: {_fmt_number(cap['disk'])} G")
+            if parts:
+                click.echo(f"      capacities: {{ {', '.join(parts)} }}")
+
+        alloc = sv.get("label_allocations")
+        if alloc and isinstance(alloc, dict):
+            parent = alloc.get("instance_parent")
+            if parent:
+                click.echo(f"      host: {parent}")
+
+        image = sv.get("image_ref")
+        if image:
+            click.echo(f"      image: {image}")
+
+        comps = sv.get("components") or []
+        if comps:
+            click.echo("      Components:")
+            for c in comps:
+                cname = c.get("Name") or c.get("name") or "—"
+                cmodel = c.get("Model") or c.get("model") or ""
+                ctype = c.get("Type") or c.get("type") or ""
+                label = f"{ctype} {cmodel}".strip() if ctype or cmodel else ""
+                click.echo(f"          {cname}: {label}" if label else f"          {cname}")
+
+        ifaces = sv.get("interfaces") or []
+        if ifaces:
+            click.echo("      Interfaces:")
+            for ifc in ifaces:
+                iname = ifc.get("Name") or ifc.get("name") or "—"
+                itype = ifc.get("Type") or ifc.get("type") or ""
+                click.echo(f"          {iname}: {itype}" if itype else f"          {iname}")
+
+
 @click.group()
 @click.option('-v', '--verbose', is_flag=True)
 @click.pass_context
@@ -349,19 +432,27 @@ def slices(ctx):
               default='all', help='Token scope')
 @click.option('--sliceid', default=None, help='Slice UUID (omit to list all)')
 @click.option('--state', default=None, help='Filter by slice state')
+@click.option('--all', 'show_all', is_flag=True, default=False, help='Include Dead and Closing slices')
+@click.option('--json', 'as_json', is_flag=True, default=False, help='Output raw JSON instead of table')
 @click.pass_context
-def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, sliceid: str, state: str):
+def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, sliceid: str, state: str,
+          show_all: bool, as_json: bool):
     """Query slices
 
-    List all slices or query a specific slice by --sliceid. Optionally
-    filter by --state.
+    List all slices or query a specific slice by --sliceid. By default,
+    Dead and Closing slices are hidden; use --all to include them.
+    Use --json for raw JSON output.
     """
     try:
         fm = __get_fabric_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
                                   token_location=tokenlocation)
         states = [state] if state else None
-        result = fm.list_slices(slice_id=sliceid, states=states, return_fmt="dict")
-        click.echo(json.dumps(result, indent=2))
+        excludes = None if (show_all or state) else ["Dead", "Closing"]
+        result = fm.list_slices(slice_id=sliceid, states=states, exclude_states=excludes, return_fmt="dict")
+        if as_json:
+            click.echo(json.dumps(result, indent=2))
+        else:
+            _print_slices(result)
     except click.ClickException:
         raise
     except Exception as e:
@@ -494,11 +585,14 @@ def slivers(ctx):
               default='all', help='Token scope')
 @click.option('--sliceid', help='Slice UUID', required=True)
 @click.option('--sliverid', default=None, help='Sliver UUID (omit to list all)')
+@click.option('--json', 'as_json', is_flag=True, default=False, help='Output raw JSON instead of table')
 @click.pass_context
-def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, sliceid: str, sliverid: str):
+def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, sliceid: str, sliverid: str,
+          as_json: bool):
     """Query slivers
 
     List all slivers in a slice, or query a specific sliver by --sliverid.
+    Use --json for raw JSON output.
     """
     try:
         fm = __get_fabric_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
@@ -507,7 +601,12 @@ def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sco
             result = fm.get_sliver(slice_id=sliceid, sliver_id=sliverid, return_fmt="dict")
         else:
             result = fm.list_slivers(slice_id=sliceid, return_fmt="dict")
-        click.echo(json.dumps(result, indent=2))
+        if as_json:
+            click.echo(json.dumps(result, indent=2))
+        else:
+            if isinstance(result, dict):
+                result = [result]
+            _print_slivers(result)
     except click.ClickException:
         raise
     except Exception as e:
@@ -532,7 +631,7 @@ def resources(ctx):
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='Token scope')
 @click.option('--force', is_flag=True, default=False, help='Force a fresh snapshot instead of using cache')
-@click.option('--summary', is_flag=True, default=True, help='Show JSON summary instead of full topology')
+@click.option('--summary', is_flag=True, default=False, help='Show JSON summary instead of full topology')
 @click.pass_context
 def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, force: bool, summary: bool):
     """Query resources
