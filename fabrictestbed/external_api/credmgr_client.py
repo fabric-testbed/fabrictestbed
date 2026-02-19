@@ -8,10 +8,13 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import os
 import socket
+import sys
 import threading
 import time
 import webbrowser
+import zlib
 from dataclasses import dataclass, field
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
@@ -274,6 +277,57 @@ class CredmgrClient:
     """
 
     TIME_FORMAT = "%Y-%m-%d %H:%M:%S %z"
+
+    @staticmethod
+    def _decode_auth_code(code: str) -> dict:
+        """Decode a base64 authorization code, handling both zlib-compressed and plain JSON."""
+        raw = base64.urlsafe_b64decode(code + "==")
+        try:
+            return json.loads(zlib.decompress(raw))
+        except zlib.error:
+            return json.loads(raw)
+
+    @staticmethod
+    def _read_auth_code(prompt: str = "Authorization code: ") -> str:
+        """Read authorization code from stdin, bypassing terminal line-buffer limits.
+
+        Terminals impose a MAX_CANON limit (typically 4096 bytes) on line-buffered
+        input, which truncates long pastes.  This method switches stdin to
+        non-canonical mode so the full paste is preserved, then restores the
+        original terminal settings before returning.
+
+        Falls back to plain ``input()`` on Windows or when stdin is not a TTY.
+        """
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
+        try:
+            import termios  # Unix only
+            fd = sys.stdin.fileno()
+            old = termios.tcgetattr(fd)
+            try:
+                new = termios.tcgetattr(fd)
+                # Turn off canonical mode to bypass MAX_CANON.
+                # Keep ECHO so the user sees the pasted text.
+                new[3] &= ~termios.ICANON
+                new[6][termios.VMIN] = 1
+                new[6][termios.VTIME] = 0
+                termios.tcsetattr(fd, termios.TCSANOW, new)
+
+                buf: list = []
+                while True:
+                    chunk = os.read(fd, 65536)
+                    for byte in chunk:
+                        ch = chr(byte)
+                        if ch in ('\r', '\n'):
+                            sys.stdout.write('\n')
+                            sys.stdout.flush()
+                            return ''.join(buf).strip()
+                        buf.append(ch)
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        except (ImportError, OSError, AttributeError):
+            # Non-TTY stdin or Windows: fall back to regular input()
+            return input("").strip()
 
     def __init__(
         self,
@@ -541,6 +595,7 @@ class CredmgrClient:
         comment: str = "Create Token via CLI",
         file_path: Optional[Union[str, Path]] = None,
         open_browser: bool = True,
+        code_file: Optional[Union[str, Path]] = None,
         timeout: int = 300,
         return_fmt: Literal["dict", "dto"] = "dict",
     ) -> List[TokenDTO] | List[Dict[str, Any]]:
@@ -558,10 +613,34 @@ class CredmgrClient:
         :param comment: Comment for the token.
         :param file_path: Optional path to save token JSON.
         :param open_browser: Whether to attempt opening the browser automatically.
+        :param code_file: Optional path to a file containing the base64 auth code.
         :param timeout: Seconds to wait for the user to complete login.
         :param return_fmt: "dict" or "dto".
         :return: List of TokenDTO or dicts.
         """
+        # If a code file is provided, skip the browser flow entirely.
+        if code_file:
+            code = Path(code_file).read_text().strip()
+            try:
+                result_holder = self._decode_auth_code(code)
+            except Exception:
+                raise CredMgrError(
+                    f"Failed to decode authorization code from {code_file}. "
+                    "Ensure the file contains the full base64 code from the browser."
+                )
+            token_data = {
+                "id_token": result_holder.get("id_token", ""),
+                "refresh_token": result_holder.get("refresh_token", ""),
+                "token_hash": result_holder.get("token_hash", ""),
+                "created_at": result_holder.get("created_at", ""),
+                "expires_at": result_holder.get("expires_at", ""),
+                "state": result_holder.get("state", ""),
+            }
+            if file_path:
+                self.save_file(file_path, token_data)
+            token = TokenDTO.from_dict(token_data)
+            return [token.to_dict()] if return_fmt == "dict" else [token]
+
         # Start local callback server
         result_holder: Dict[str, Any] = {}
         error_holder: Dict[str, str] = {}
@@ -628,9 +707,10 @@ class CredmgrClient:
             # Prompt user to paste the authorization code from the browser.
             print("\n\nThe CLI did not receive the token automatically.")
             print("If you are running the CLI on a remote machine, copy the")
-            print("authorization code shown in your browser and paste it below.\n")
+            print("authorization code shown in your browser and paste it below.")
+            print("After pasting, press Enter to submit.\n")
             try:
-                code = input("Authorization code: ").strip()
+                code = self._read_auth_code()
             except (EOFError, KeyboardInterrupt):
                 raise CredMgrError("Authentication cancelled.")
 
@@ -638,12 +718,15 @@ class CredmgrClient:
                 raise CredMgrError("No authorization code provided.")
 
             try:
-                decoded = json.loads(base64.urlsafe_b64decode(code + "=="))
+                decoded = self._decode_auth_code(code)
                 result_holder.update(decoded)
             except Exception:
                 raise CredMgrError(
-                    "Invalid authorization code. Please copy the full code "
-                    "from the browser and try again."
+                    "Invalid authorization code. The code may have been "
+                    "truncated by your terminal. Try:\n"
+                    "  Save the code to a file, then run:\n"
+                    "    fabric-cli tokens create --no-browser "
+                    "--code-file code.txt"
                 )
 
         # Build token from the callback data
