@@ -562,9 +562,6 @@ class CredmgrClient:
         :param return_fmt: "dict" or "dto".
         :return: List of TokenDTO or dicts.
         """
-        if not project_id and not project_name:
-            raise CredMgrValidationError("project_id or project_name must be specified")
-
         # Start local callback server
         result_holder: Dict[str, Any] = {}
         error_holder: Dict[str, str] = {}
