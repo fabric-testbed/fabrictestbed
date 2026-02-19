@@ -31,21 +31,51 @@ import click
 
 from ..util.constants import Constants
 
+_DEFAULT_CREDMGR_HOST = "cm.fabric-testbed.net"
+_DEFAULT_ORCHESTRATOR_HOST = "orchestrator.fabric-testbed.net"
+_DEFAULT_CORE_API_HOST = "uis.fabric-testbed.net"
+_FABRIC_RC_PATH = os.path.expanduser("~/work/fabric_config/fabric_rc")
+
+
+def _load_fabric_rc():
+    """Load config from ~/work/fabric_config/fabric_rc if it exists.
+
+    Returns a dict of key-value pairs. Supports 'export KEY=VALUE' and
+    'KEY=VALUE' lines; comments and blank lines are ignored.
+    """
+    config = {}
+    if not os.path.exists(_FABRIC_RC_PATH):
+        return config
+    try:
+        with open(_FABRIC_RC_PATH, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                if line.startswith('export '):
+                    line = line[len('export '):]
+                if '=' in line:
+                    key, _, value = line.partition('=')
+                    key = key.strip()
+                    value = value.strip().strip('"').strip("'")
+                    if key and value:
+                        config[key] = value
+    except Exception:
+        pass
+    return config
+
 
 def __get_fabric_manager(*, oc_host=None, cm_host=None, project_id=None,
                          scope="all", token_location=None, project_name=None):
-    """Construct a FabricManagerV2 from CLI args and env vars."""
+    """Construct a FabricManagerV2 from CLI args, env vars, fabric_rc, and defaults."""
     from ..fabric_manager_v2 import FabricManagerV2
-    cm = cm_host or os.getenv(Constants.FABRIC_CREDMGR_HOST)
-    oc = oc_host or os.getenv(Constants.FABRIC_ORCHESTRATOR_HOST)
-    pid = project_id or os.getenv(Constants.FABRIC_PROJECT_ID)
-    pname = project_name or os.getenv(Constants.FABRIC_PROJECT_NAME)
-    tl = token_location or os.getenv(Constants.FABRIC_TOKEN_LOCATION) or os.path.join(os.getcwd(), "tokens.json")
-    core = os.getenv(Constants.FABRIC_CORE_API_HOST)
-    if not oc:
-        raise click.ClickException("Orchestrator host required via --ochost or $FABRIC_ORCHESTRATOR_HOST")
-    if not cm:
-        raise click.ClickException("Credential Manager host required via --cmhost or $FABRIC_CREDMGR_HOST")
+    rc = _load_fabric_rc()
+    cm = cm_host or os.getenv(Constants.FABRIC_CREDMGR_HOST) or rc.get(Constants.FABRIC_CREDMGR_HOST) or _DEFAULT_CREDMGR_HOST
+    oc = oc_host or os.getenv(Constants.FABRIC_ORCHESTRATOR_HOST) or rc.get(Constants.FABRIC_ORCHESTRATOR_HOST) or _DEFAULT_ORCHESTRATOR_HOST
+    pid = project_id or os.getenv(Constants.FABRIC_PROJECT_ID) or rc.get(Constants.FABRIC_PROJECT_ID)
+    pname = project_name or os.getenv(Constants.FABRIC_PROJECT_NAME) or rc.get(Constants.FABRIC_PROJECT_NAME)
+    tl = token_location or os.getenv(Constants.FABRIC_TOKEN_LOCATION) or rc.get(Constants.FABRIC_TOKEN_LOCATION) or os.path.join(os.getcwd(), "tokens.json")
+    core = os.getenv(Constants.FABRIC_CORE_API_HOST) or rc.get(Constants.FABRIC_CORE_API_HOST) or _DEFAULT_CORE_API_HOST
     return FabricManagerV2(
         credmgr_host=cm, orchestrator_host=oc, core_api_host=core,
         token_location=tl, project_id=pid, project_name=pname, scope=scope,
@@ -53,21 +83,26 @@ def __get_fabric_manager(*, oc_host=None, cm_host=None, project_id=None,
 
 
 def __resolve_tokenlocation(tokenlocation: str) -> str:
-    """Resolve token file location from arg, env var, or default to ./tokens.json."""
+    """Resolve token file location from arg, env var, fabric_rc, or default to ./tokens.json."""
     if tokenlocation is None:
         tokenlocation = os.getenv(Constants.FABRIC_TOKEN_LOCATION)
+    if tokenlocation is None:
+        rc = _load_fabric_rc()
+        tokenlocation = rc.get(Constants.FABRIC_TOKEN_LOCATION)
     if tokenlocation is None:
         tokenlocation = os.path.join(os.getcwd(), "tokens.json")
     return tokenlocation
 
 
 def __resolve_cmhost(cmhost: str) -> str:
-    """Resolve credential manager host from arg or env var."""
+    """Resolve credential manager host from arg, env var, fabric_rc, or default."""
     if cmhost is None:
         cmhost = os.getenv(Constants.FABRIC_CREDMGR_HOST)
-    if not cmhost:
-        raise click.ClickException("Credential Manager Host must be specified "
-                                   "via --cmhost or $FABRIC_CREDMGR_HOST")
+    if cmhost is None:
+        rc = _load_fabric_rc()
+        cmhost = rc.get(Constants.FABRIC_CREDMGR_HOST)
+    if cmhost is None:
+        cmhost = _DEFAULT_CREDMGR_HOST
     return cmhost
 
 
@@ -123,10 +158,11 @@ def create(ctx, cmhost: str, projectid: str, projectname: str, lifetime: int, co
         client = CredmgrClient(credmgr_host=cmhost,
                                 cookie_name=cookie_name or "fabric-service")
 
+        rc = _load_fabric_rc()
         if projectid is None:
-            projectid = os.getenv(Constants.FABRIC_PROJECT_ID)
+            projectid = os.getenv(Constants.FABRIC_PROJECT_ID) or rc.get(Constants.FABRIC_PROJECT_ID)
         if projectname is None:
-            projectname = os.getenv(Constants.FABRIC_PROJECT_NAME)
+            projectname = os.getenv(Constants.FABRIC_PROJECT_NAME) or rc.get(Constants.FABRIC_PROJECT_NAME)
 
         tokens = client.create_cli(
             scope=scope,
@@ -139,7 +175,17 @@ def create(ctx, cmhost: str, projectid: str, projectname: str, lifetime: int, co
             return_fmt="dto",
         )
 
-        click.echo(f"\nToken saved at: {tokenlocation}")
+        project_label = ""
+        if tokens and tokens[0].id_token:
+            try:
+                decoded = client.validate(id_token=tokens[0].id_token, return_fmt="dto")
+                if decoded.projects:
+                    p = decoded.projects[0]
+                    project_label = f" for project: '{p.name}' ({p.uuid})"
+            except Exception:
+                pass
+
+        click.echo(f"\nToken saved at: {tokenlocation}{project_label}")
     except click.ClickException as e:
         raise e
     except Exception as e:
@@ -175,10 +221,11 @@ def refresh(ctx, cmhost: str, tokenlocation: str, projectid: str, projectname: s
         if not refresh_token:
             raise click.ClickException(f"No refresh_token found in {tokenlocation}")
 
+        rc = _load_fabric_rc()
         if projectid is None:
-            projectid = os.getenv(Constants.FABRIC_PROJECT_ID)
+            projectid = os.getenv(Constants.FABRIC_PROJECT_ID) or rc.get(Constants.FABRIC_PROJECT_ID)
         if projectname is None:
-            projectname = os.getenv(Constants.FABRIC_PROJECT_NAME)
+            projectname = os.getenv(Constants.FABRIC_PROJECT_NAME) or rc.get(Constants.FABRIC_PROJECT_NAME)
 
         cookie_name = os.getenv(Constants.FABRIC_COOKIE_NAME)
 
@@ -296,7 +343,7 @@ def slices(ctx):
 @slices.command()
 @click.option('--cmhost', help='Credential Manager host', default=None)
 @click.option('--ochost', help='Orchestrator host', default=None)
-@click.option('--tokenlocation', help='Path to token JSON file', default=None)
+@click.option('--tokenlocation', help='Path to token JSON file (defaults to $FABRIC_TOKEN_LOCATION or ./tokens.json)', default=None)
 @click.option('--projectid', default=None, help='Project UUID')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='Token scope')
@@ -324,7 +371,7 @@ def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sco
 @slices.command()
 @click.option('--cmhost', help='Credential Manager host', default=None)
 @click.option('--ochost', help='Orchestrator host', default=None)
-@click.option('--tokenlocation', help='Path to token JSON file', default=None)
+@click.option('--tokenlocation', help='Path to token JSON file (defaults to $FABRIC_TOKEN_LOCATION or ./tokens.json)', default=None)
 @click.option('--projectid', default=None, help='Project UUID')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='Token scope')
@@ -354,7 +401,7 @@ def create(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sc
 @slices.command()
 @click.option('--cmhost', help='Credential Manager host', default=None)
 @click.option('--ochost', help='Orchestrator host', default=None)
-@click.option('--tokenlocation', help='Path to token JSON file', default=None)
+@click.option('--tokenlocation', help='Path to token JSON file (defaults to $FABRIC_TOKEN_LOCATION or ./tokens.json)', default=None)
 @click.option('--projectid', default=None, help='Project UUID')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='Token scope')
@@ -381,7 +428,7 @@ def modify(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sc
 @slices.command()
 @click.option('--cmhost', help='Credential Manager host', default=None)
 @click.option('--ochost', help='Orchestrator host', default=None)
-@click.option('--tokenlocation', help='Path to token JSON file', default=None)
+@click.option('--tokenlocation', help='Path to token JSON file (defaults to $FABRIC_TOKEN_LOCATION or ./tokens.json)', default=None)
 @click.option('--projectid', default=None, help='Project UUID')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='Token scope')
@@ -406,7 +453,7 @@ def modifyaccept(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: s
 @slices.command()
 @click.option('--cmhost', help='Credential Manager host', default=None)
 @click.option('--ochost', help='Orchestrator host', default=None)
-@click.option('--tokenlocation', help='Path to token JSON file', default=None)
+@click.option('--tokenlocation', help='Path to token JSON file (defaults to $FABRIC_TOKEN_LOCATION or ./tokens.json)', default=None)
 @click.option('--projectid', default=None, help='Project UUID')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='Token scope')
@@ -441,7 +488,7 @@ def slivers(ctx):
 @slivers.command()
 @click.option('--cmhost', help='Credential Manager host', default=None)
 @click.option('--ochost', help='Orchestrator host', default=None)
-@click.option('--tokenlocation', help='Path to token JSON file', default=None)
+@click.option('--tokenlocation', help='Path to token JSON file (defaults to $FABRIC_TOKEN_LOCATION or ./tokens.json)', default=None)
 @click.option('--projectid', default=None, help='Project UUID')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='Token scope')
@@ -480,12 +527,12 @@ def resources(ctx):
 @resources.command()
 @click.option('--cmhost', help='Credential Manager host', default=None)
 @click.option('--ochost', help='Orchestrator host', default=None)
-@click.option('--tokenlocation', help='Path to token JSON file', default=None)
+@click.option('--tokenlocation', help='Path to token JSON file (defaults to $FABRIC_TOKEN_LOCATION or ./tokens.json)', default=None)
 @click.option('--projectid', default=None, help='Project UUID')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
               default='all', help='Token scope')
 @click.option('--force', is_flag=True, default=False, help='Force a fresh snapshot instead of using cache')
-@click.option('--summary', is_flag=True, default=False, help='Show JSON summary instead of full topology')
+@click.option('--summary', is_flag=True, default=True, help='Show JSON summary instead of full topology')
 @click.pass_context
 def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, force: bool, summary: bool):
     """Query resources
