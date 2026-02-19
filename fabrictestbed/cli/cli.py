@@ -139,7 +139,7 @@ def create(ctx, cmhost: str, projectid: str, projectname: str, lifetime: int, co
             return_fmt="dto",
         )
 
-        click.echo(f"Token saved at: {tokenlocation}")
+        click.echo(f"\nToken saved at: {tokenlocation}")
     except click.ClickException as e:
         raise e
     except Exception as e:
