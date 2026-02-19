@@ -218,9 +218,11 @@ def tokens(ctx):
               default='all', help='Token scope')
 @click.option('--tokenlocation', help='Path to save token JSON (defaults to ./tokens.json)', default=None)
 @click.option('--no-browser', is_flag=True, default=False, help='Do not attempt to open a browser automatically')
+@click.option('--code-file', default=None, type=click.Path(exists=True),
+              help='File containing the base64 authorization code (for remote/headless use)')
 @click.pass_context
 def create(ctx, cmhost: str, projectid: str, projectname: str, lifetime: int, comment: str,
-           scope: str, tokenlocation: str, no_browser: bool):
+           scope: str, tokenlocation: str, no_browser: bool, code_file: str):
     """Create token
 
     Opens a browser for CILogon authentication (or prints the URL if the
@@ -255,6 +257,7 @@ def create(ctx, cmhost: str, projectid: str, projectname: str, lifetime: int, co
             comment=comment or "Create Token via CLI",
             file_path=tokenlocation,
             open_browser=not no_browser,
+            code_file=code_file,
             return_fmt="dto",
         )
 
