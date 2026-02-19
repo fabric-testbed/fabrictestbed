@@ -191,9 +191,11 @@ class FabricManagerV2(TopologyQueryAPI):
             self.user_id = self.user_id or token_info.get("uuid")
             self.user_email = self.user_email or token_info.get("email")
             projects = token_info.get("projects") or []
+            # Only consider active projects
+            active_projects = [p for p in projects if p.get("active", True)]
             project_id = None
             project_name = None
-            if projects:
+            if active_projects:
                 def _score(p: Dict[str, Any]) -> int:
                     memberships = p.get("memberships") or {}
                     if memberships.get("is_token_holder"):
@@ -204,7 +206,7 @@ class FabricManagerV2(TopologyQueryAPI):
                         return 1
                     return 0
 
-                chosen = max(projects, key=_score)
+                chosen = max(active_projects, key=_score)
                 project_id = chosen.get("uuid")
                 project_name = chosen.get("name")
 
