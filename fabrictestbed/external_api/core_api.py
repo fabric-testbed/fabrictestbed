@@ -25,7 +25,7 @@
 import datetime
 import json
 import logging
-from typing import List
+from typing import List, Dict, Any, Optional
 
 import requests
 
@@ -413,6 +413,147 @@ class CoreApi:
         response = requests.delete(f'{self.api_server}/quotas/{uuid}', headers=self.headers)
         self.raise_for_status(response=response)
         logging.debug(f"DEL Quotas Response : {response.json()}")
+
+    def list_storage(self, offset: int = 0, limit: int = 200) -> List[dict]:
+        """
+        Fetch all storage volumes from the API.
+
+        Parameters:
+        offset (int, optional): The starting point for fetching records. Defaults to 0.
+        limit (int, optional): The maximum number of records to fetch. Defaults to 200.
+
+        Returns:
+        List[dict]: A list of storage volume records.
+        """
+        params = {"offset": offset, "limit": limit}
+        response = requests.get(f'{self.api_server}/storage', headers=self.headers, params=params)
+        self.raise_for_status(response=response)
+        logging.debug(f"GET Storage Response : {response.json()}")
+        return response.json().get("results")
+
+    def get_storage(self, uuid: str) -> List[dict]:
+        """
+        Send a GET request to retrieve a storage volume by UUID.
+
+        Parameters:
+        uuid (str): The UUID of the storage volume to retrieve.
+
+        Returns:
+        List[dict]: The retrieved storage volume details.
+        """
+        response = requests.get(f'{self.api_server}/storage/{uuid}', headers=self.headers)
+        self.raise_for_status(response=response)
+        logging.debug(f"GET Storage Response : {response.json()}")
+        return response.json().get("results")
+
+    def get_ssh_key(self, uuid: str) -> List[dict]:
+        """
+        Send a GET request to retrieve an SSH key by UUID.
+
+        Parameters:
+        uuid (str): The UUID of the SSH key to retrieve.
+
+        Returns:
+        List[dict]: The retrieved SSH key details.
+        """
+        response = requests.get(f'{self.api_server}/sshkeys/{uuid}', headers=self.headers)
+        self.raise_for_status(response=response)
+        logging.debug(f"GET SSH Key Response : {response.json()}")
+        return response.json().get("results")
+
+    def get_bastion_keys(self, secret: str, since_date: str) -> List[dict]:
+        """
+        Send a GET request to retrieve bastion keys.
+
+        Parameters:
+        secret (str): The secret required for authentication.
+        since_date (str): The date from which to fetch bastion keys.
+
+        Returns:
+        List[dict]: The retrieved bastion keys.
+        """
+        params = {"secret": secret, "since_date": since_date}
+        response = requests.get(f'{self.api_server}/bastionkeys', headers=self.headers, params=params)
+        self.raise_for_status(response=response)
+        logging.debug(f"GET Bastion Keys Response : {response.json()}")
+        return response.json().get("results")
+
+    def get_project(self, uuid: str) -> List[dict]:
+        """
+        Send a GET request to retrieve a project by UUID.
+
+        Parameters:
+        uuid (str): The UUID of the project to retrieve.
+
+        Returns:
+        List[dict]: The retrieved project details.
+        """
+        response = requests.get(f'{self.api_server}/projects/{uuid}', headers=self.headers)
+        self.raise_for_status(response=response)
+        logging.debug(f"GET Project Response : {response.json()}")
+        return response.json().get("results")
+
+    def list_project_users(self, project_uuid: str) -> List[dict]:
+        """
+        List users for a project.
+
+        :param project_uuid: Project UUID
+        :return: List of user records with roles
+        """
+        if not project_uuid:
+            raise CoreApiError("project_uuid is required")
+
+        project_details = self.get_project(uuid=project_uuid)
+        project_obj: Optional[dict] = None
+        if isinstance(project_details, list) and project_details:
+            project_obj = project_details[0]
+        elif isinstance(project_details, dict):
+            project_obj = project_details
+
+        def _add_user(bucket: Dict[str, Dict[str, Any]], person: Dict[str, Any], role_label: str) -> None:
+            if not isinstance(person, dict):
+                return
+            user_uuid = person.get("uuid") or person.get("user_uuid") or person.get("person_uuid")
+            if not user_uuid:
+                return
+            rec = bucket.setdefault(
+                user_uuid,
+                {
+                    "project_uuid": project_uuid,
+                    "user_uuid": user_uuid,
+                    "email": person.get("email") or person.get("username"),
+                    "name": person.get("name") or person.get("full_name") or person.get("fullname"),
+                    "roles": [],
+                },
+            )
+            if role_label and role_label not in rec["roles"]:
+                rec["roles"].append(role_label)
+
+        users_index: Dict[str, Dict[str, Any]] = {}
+        if isinstance(project_obj, dict):
+            for person in project_obj.get("project_members", []) or []:
+                _add_user(users_index, person, "member")
+            for person in project_obj.get("project_owners", []) or []:
+                _add_user(users_index, person, "owner")
+            for person in project_obj.get("project_creators", []) or []:
+                _add_user(users_index, person, "creator")
+            for person in project_obj.get("token_holders", []) or []:
+                _add_user(users_index, person, "token_holder")
+            lead = project_obj.get("project_lead")
+            if lead:
+                _add_user(users_index, lead, "lead")
+            # Fallback keys
+            for person in project_obj.get("members") or []:
+                _add_user(users_index, person, "member")
+            for person in project_obj.get("users") or []:
+                _add_user(users_index, person, "member")
+
+        users_out: List[Dict[str, Any]] = []
+        for rec in users_index.values():
+            rec["role"] = ",".join(rec["roles"]) if rec.get("roles") else None
+            users_out.append(rec)
+
+        return users_out
 
     @staticmethod
     def raise_for_status(response: requests.Response):

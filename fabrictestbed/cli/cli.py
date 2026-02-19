@@ -25,52 +25,168 @@
 # Author: Erica Fu (ericafu@renci.org), Komal Thareja (kthare10@renci.org)
 #
 import os
-import traceback
-from typing import Any
 
 import json
 import click
-from fabric_cf.orchestrator.orchestrator_proxy import SliceState
-from fabric_cm.credmgr.credmgr_proxy import TokenType
-from fabrictestbed.util.utils import Utils
 
-from .exceptions import TokenExpiredException
-from ..slice_manager import CredmgrProxy
-from ..slice_manager.slice_manager import SliceManager, Status
 from ..util.constants import Constants
 
-
-def __get_slice_manager(*, oc_host: str = None, cm_host: str = None, project_id: str = None, scope: str = "all",
-                        token_location: str = None, project_name: str = None) -> SliceManager:
-    """
-    Get Environment Variables
-    @param oc_host Orchestrator host
-    @param cm_host Credmgr Host
-    @param project_id Project Id
-    @param project_name Project Name
-    @param scope Scope
-    @param token_location Absolute location of the tokens JSON file
-    @raises ClickException in case of error
-    """
-    return SliceManager(oc_host=oc_host, cm_host=cm_host, project_id=project_id, scope=scope,
-                        token_location=token_location, project_name=project_name)
+_DEFAULT_CREDMGR_HOST = "cm.fabric-testbed.net"
+_DEFAULT_ORCHESTRATOR_HOST = "orchestrator.fabric-testbed.net"
+_DEFAULT_CORE_API_HOST = "uis.fabric-testbed.net"
+_FABRIC_RC_PATH = os.path.expanduser("~/work/fabric_config/fabric_rc")
 
 
-def __unpack(data: Any) -> Any:
+def _load_fabric_rc():
+    """Load config from ~/work/fabric_config/fabric_rc if it exists.
+
+    Returns a dict of key-value pairs. Supports 'export KEY=VALUE' and
+    'KEY=VALUE' lines; comments and blank lines are ignored.
     """
-    Recursivly unpacks JSON dictionaries or lists embedded in a list or dict.
-    @param Any to unpack
-    """
-    if isinstance(data, str):
-        if data and data[0] in ('{','['): ## starts with - json loads will catch errors
-            data=__unpack(json.loads(data))
-    elif isinstance(data, list):
-        for i,v in enumerate(data):
-            data[i]=__unpack(v)
-    elif isinstance(data, dict):
-        for k,v in data.items():
-            data[k]=__unpack(v)
-    return data
+    config = {}
+    if not os.path.exists(_FABRIC_RC_PATH):
+        return config
+    try:
+        with open(_FABRIC_RC_PATH, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                if line.startswith('export '):
+                    line = line[len('export '):]
+                if '=' in line:
+                    key, _, value = line.partition('=')
+                    key = key.strip()
+                    value = value.strip().strip('"').strip("'")
+                    if key and value:
+                        config[key] = value
+    except Exception:
+        pass
+    return config
+
+
+def __get_fabric_manager(*, oc_host=None, cm_host=None, project_id=None,
+                         scope="all", token_location=None, project_name=None):
+    """Construct a FabricManagerV2 from CLI args, env vars, fabric_rc, and defaults."""
+    from ..fabric_manager_v2 import FabricManagerV2
+    rc = _load_fabric_rc()
+    cm = cm_host or os.getenv(Constants.FABRIC_CREDMGR_HOST) or rc.get(Constants.FABRIC_CREDMGR_HOST) or _DEFAULT_CREDMGR_HOST
+    oc = oc_host or os.getenv(Constants.FABRIC_ORCHESTRATOR_HOST) or rc.get(Constants.FABRIC_ORCHESTRATOR_HOST) or _DEFAULT_ORCHESTRATOR_HOST
+    pid = project_id or os.getenv(Constants.FABRIC_PROJECT_ID) or rc.get(Constants.FABRIC_PROJECT_ID)
+    pname = project_name or os.getenv(Constants.FABRIC_PROJECT_NAME) or rc.get(Constants.FABRIC_PROJECT_NAME)
+    tl = token_location or os.getenv(Constants.FABRIC_TOKEN_LOCATION) or rc.get(Constants.FABRIC_TOKEN_LOCATION) or os.path.join(os.getcwd(), "tokens.json")
+    core = os.getenv(Constants.FABRIC_CORE_API_HOST) or rc.get(Constants.FABRIC_CORE_API_HOST) or _DEFAULT_CORE_API_HOST
+    return FabricManagerV2(
+        credmgr_host=cm, orchestrator_host=oc, core_api_host=core,
+        token_location=tl, project_id=pid, project_name=pname, scope=scope,
+    )
+
+
+def __resolve_tokenlocation(tokenlocation: str) -> str:
+    """Resolve token file location from arg, env var, fabric_rc, or default to ./tokens.json."""
+    if tokenlocation is None:
+        tokenlocation = os.getenv(Constants.FABRIC_TOKEN_LOCATION)
+    if tokenlocation is None:
+        rc = _load_fabric_rc()
+        tokenlocation = rc.get(Constants.FABRIC_TOKEN_LOCATION)
+    if tokenlocation is None:
+        tokenlocation = os.path.join(os.getcwd(), "tokens.json")
+    return tokenlocation
+
+
+def __resolve_cmhost(cmhost: str) -> str:
+    """Resolve credential manager host from arg, env var, fabric_rc, or default."""
+    if cmhost is None:
+        cmhost = os.getenv(Constants.FABRIC_CREDMGR_HOST)
+    if cmhost is None:
+        rc = _load_fabric_rc()
+        cmhost = rc.get(Constants.FABRIC_CREDMGR_HOST)
+    if cmhost is None:
+        cmhost = _DEFAULT_CREDMGR_HOST
+    return cmhost
+
+
+def _fmt_number(n) -> str:
+    """Format a number with comma separators, or return '—' for None."""
+    if n is None:
+        return "—"
+    if isinstance(n, float) and n == int(n):
+        n = int(n)
+    return f"{n:,}"
+
+
+def _print_slices(slices_list):
+    """Print slices in a compact, human-readable table."""
+    if not slices_list:
+        click.echo("No slices found.")
+        return
+    for s in slices_list:
+        state = s.get("state", "Unknown")
+        name = s.get("name", "—")
+        sid = s.get("slice_id", "—")
+        proj = s.get("project_name") or s.get("project_id") or "—"
+        lease_end = s.get("lease_end_time") or "—"
+        click.echo(f"  {name} [{state}]  id={sid}")
+        click.echo(f"      project: {proj}  lease_end: {lease_end}")
+
+
+def _print_slivers(slivers_list):
+    """Print slivers in a compact, human-readable format."""
+    if not slivers_list:
+        click.echo("No slivers found.")
+        return
+    for sv in slivers_list:
+        name = sv.get("name") or "—"
+        stype = sv.get("type") or sv.get("sliver_type") or "—"
+        site = sv.get("site") or "—"
+        state = sv.get("state") or "—"
+        sid = sv.get("sliver_id") or "—"
+        mgmt_ip = sv.get("mgmt_ip")
+
+        header = f"  {name} [{stype}] @ {site}  state={state}  id={sid}"
+        if mgmt_ip:
+            header += f"  mgmt_ip={mgmt_ip}"
+        click.echo(header)
+
+        cap = sv.get("capacities")
+        if cap and isinstance(cap, dict):
+            parts = []
+            if "core" in cap:
+                parts.append(f"core: {_fmt_number(cap['core'])}")
+            if "ram" in cap:
+                parts.append(f"ram: {_fmt_number(cap['ram'])} G")
+            if "disk" in cap:
+                parts.append(f"disk: {_fmt_number(cap['disk'])} G")
+            if parts:
+                click.echo(f"      capacities: {{ {', '.join(parts)} }}")
+
+        alloc = sv.get("label_allocations")
+        if alloc and isinstance(alloc, dict):
+            parent = alloc.get("instance_parent")
+            if parent:
+                click.echo(f"      host: {parent}")
+
+        image = sv.get("image_ref")
+        if image:
+            click.echo(f"      image: {image}")
+
+        comps = sv.get("components") or []
+        if comps:
+            click.echo("      Components:")
+            for c in comps:
+                cname = c.get("Name") or c.get("name") or "—"
+                cmodel = c.get("Model") or c.get("model") or ""
+                ctype = c.get("Type") or c.get("type") or ""
+                label = f"{ctype} {cmodel}".strip() if ctype or cmodel else ""
+                click.echo(f"          {cname}: {label}" if label else f"          {cname}")
+
+        ifaces = sv.get("interfaces") or []
+        if ifaces:
+            click.echo("      Interfaces:")
+            for ifc in ifaces:
+                iname = ifc.get("Name") or ifc.get("name") or "—"
+                itype = ifc.get("Type") or ifc.get("type") or ""
+                click.echo(f"          {iname}: {itype}" if itype else f"          {iname}")
 
 
 @click.group()
@@ -84,60 +200,75 @@ def cli(ctx, verbose):
 @click.group()
 @click.pass_context
 def tokens(ctx):
-    """ Token management
-        (set $FABRIC_CREDMGR_HOST => CredentialManager, $FABRIC_project_id => Project Id)
+    """Token management
+
+    Manage FABRIC identity and refresh tokens. Set $FABRIC_CREDMGR_HOST
+    to avoid passing --cmhost on every command. Set $FABRIC_TOKEN_LOCATION
+    to set the default token file path (defaults to ./tokens.json).
     """
 
 
 @tokens.command()
-@click.option('--cmhost', help='Credmgr Host', default=None)
-@click.option('--projectid', default=None, help='Project id')
-@click.option('--projectname', default=None, help='Project name')
+@click.option('--cmhost', help='Credential Manager host', default=None)
+@click.option('--projectid', default=None, help='Project UUID (uses first project if not specified)')
+@click.option('--projectname', default=None, help='Project name (uses first project if not specified)')
 @click.option('--lifetime', default=4, help='Token lifetime in hours')
 @click.option('--comment', default=None, help='Comment/note to associate with the token')
-@click.option('--browser', default="chrome", type=click.Choice(['chrome', 'firefox', 'safari', 'edge'],
-                                                               case_sensitive=False),
-              help='Browser to use to launch the web app!')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
-              default='all', help='scope')
-@click.option('--tokenlocation', help='Location and name of the while in which to store tokens', default=None)
+              default='all', help='Token scope')
+@click.option('--tokenlocation', help='Path to save token JSON (defaults to ./tokens.json)', default=None)
+@click.option('--no-browser', is_flag=True, default=False, help='Do not attempt to open a browser automatically')
 @click.pass_context
 def create(ctx, cmhost: str, projectid: str, projectname: str, lifetime: int, comment: str,
-           browser: str, scope: str, tokenlocation: str):
+           scope: str, tokenlocation: str, no_browser: bool):
     """Create token
+
+    Opens a browser for CILogon authentication (or prints the URL if the
+    browser cannot be opened). After login, the token is automatically
+    captured via a localhost callback. If running on a remote VM, press
+    Ctrl+C and paste the authorization code shown in the browser.
+
+    Token is saved to --tokenlocation, $FABRIC_TOKEN_LOCATION, or
+    ./tokens.json (in that order). If no project is specified, the
+    user's first project is used.
     """
     try:
-        if cmhost is None and os.environ.get(Constants.FABRIC_CREDMGR_HOST) is None:
-            raise click.ClickException(f"Credential Manager Host must be specified!")
-
-        if projectname is None and os.environ.get(Constants.FABRIC_PROJECT_NAME) is None and projectid is None and \
-                os.environ.get(Constants.FABRIC_PROJECT_ID) is None:
-            raise click.ClickException(f"Either Project Name or Project Id must be specified!")
-
+        cmhost = __resolve_cmhost(cmhost)
+        tokenlocation = __resolve_tokenlocation(tokenlocation)
         cookie_name = os.getenv(Constants.FABRIC_COOKIE_NAME)
-        if cmhost is None:
-            cmhost = os.getenv(Constants.FABRIC_CREDMGR_HOST)
 
-        if cookie_name is not None:
-            cm_proxy = CredmgrProxy(credmgr_host=cmhost, cookie_name=cookie_name)
-        else:
-            cm_proxy = CredmgrProxy(credmgr_host=cmhost)
+        from ..external_api.credmgr_client import CredmgrClient
+        client = CredmgrClient(credmgr_host=cmhost,
+                                cookie_name=cookie_name or "fabric-service")
 
-        if tokenlocation is None:
-            tokenlocation = os.getenv(Constants.FABRIC_TOKEN_LOCATION)
+        rc = _load_fabric_rc()
+        if projectid is None:
+            projectid = os.getenv(Constants.FABRIC_PROJECT_ID) or rc.get(Constants.FABRIC_PROJECT_ID)
+        if projectname is None:
+            projectname = os.getenv(Constants.FABRIC_PROJECT_NAME) or rc.get(Constants.FABRIC_PROJECT_NAME)
 
-        status, token_or_exception = cm_proxy.create(project_id=projectid, project_name=projectname,
-                                                     life_time_in_hours=lifetime, comment=comment,
-                                                     browser_name=browser, scope=scope, file_name=tokenlocation)
+        tokens = client.create_cli(
+            scope=scope,
+            project_id=projectid,
+            project_name=projectname,
+            lifetime_hours=lifetime,
+            comment=comment or "Create Token via CLI",
+            file_path=tokenlocation,
+            open_browser=not no_browser,
+            return_fmt="dto",
+        )
 
-        from fabric_cm.credmgr.credmgr_proxy import Status as CmStatus
-        if status == CmStatus.OK:
-            if tokenlocation is None:
-                click.echo(f"Fabric Token: {token_or_exception}")
-            else:
-                click.echo(f"Fabric Token saved at: {tokenlocation}")
-        else:
-            raise click.ClickException(f"{Utils.extract_error_message(exception=token_or_exception)}")
+        project_label = ""
+        if tokens and tokens[0].id_token:
+            try:
+                decoded = client.validate(id_token=tokens[0].id_token, return_fmt="dto")
+                if decoded.projects:
+                    p = decoded.projects[0]
+                    project_label = f" for project: '{p.name}' ({p.uuid})"
+            except Exception:
+                pass
+
+        click.echo(f"\nToken saved at: {tokenlocation}{project_label}")
     except click.ClickException as e:
         raise e
     except Exception as e:
@@ -145,36 +276,56 @@ def create(ctx, cmhost: str, projectid: str, projectname: str, lifetime: int, co
 
 
 @tokens.command()
-@click.option('--cmhost', help='Credmgr Host', default=None)
-@click.option('--tokenlocation', help='Location of the file which contains the valid tokens', default=None)
-@click.option('--projectid', default=None, help='Project Id')
+@click.option('--cmhost', help='Credential Manager host', default=None)
+@click.option('--tokenlocation', help='Path to token JSON file (defaults to ./tokens.json)', default=None)
+@click.option('--projectid', default=None, help='Project UUID')
 @click.option('--projectname', default=None, help='Project name')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
-              default='all', help='Scope')
+              default='all', help='Token scope')
 @click.pass_context
 def refresh(ctx, cmhost: str, tokenlocation: str, projectid: str, projectname: str, scope: str):
     """Refresh token
+
+    Reads the existing token file, uses the refresh_token to obtain a new
+    identity token, and saves the result back. Token file is read from
+    --tokenlocation, $FABRIC_TOKEN_LOCATION, or ./tokens.json.
     """
     try:
-        if cmhost is None and os.environ.get(Constants.FABRIC_CREDMGR_HOST) is None:
-            raise click.ClickException(f"Credential Manager Host must be specified!")
+        cmhost = __resolve_cmhost(cmhost)
+        tokenlocation = __resolve_tokenlocation(tokenlocation)
 
-        if tokenlocation is None and os.environ.get(Constants.FABRIC_TOKEN_LOCATION) is None:
-            raise click.ClickException(f"Token location must be specified !")
+        if not os.path.exists(tokenlocation):
+            raise click.ClickException(f"Token file not found: {tokenlocation}")
 
-        if projectname is None and os.environ.get(Constants.FABRIC_PROJECT_NAME) is None and projectid is None and \
-                os.environ.get(Constants.FABRIC_PROJECT_ID) is None:
-            raise click.ClickException(f"Either Project Name or Project Id must be specified!")
+        with open(tokenlocation, 'r') as f:
+            existing = json.load(f)
 
-        if tokenlocation is None:
-            tokenlocation = os.getenv(Constants.FABRIC_TOKEN_LOCATION)
+        refresh_token = existing.get("refresh_token")
+        if not refresh_token:
+            raise click.ClickException(f"No refresh_token found in {tokenlocation}")
 
-        slice_manager = __get_slice_manager(cm_host=cmhost, project_id=projectid, scope=scope,
-                                            token_location=tokenlocation, project_name=projectname)
+        rc = _load_fabric_rc()
+        if projectid is None:
+            projectid = os.getenv(Constants.FABRIC_PROJECT_ID) or rc.get(Constants.FABRIC_PROJECT_ID)
+        if projectname is None:
+            projectname = os.getenv(Constants.FABRIC_PROJECT_NAME) or rc.get(Constants.FABRIC_PROJECT_NAME)
 
-        click.echo(f"ID Token: {slice_manager.get_id_token()}")
-        click.echo(f"Refresh Token: {slice_manager.get_refresh_token()}")
-        click.echo(f"Refreshed token saved at: {tokenlocation}")
+        cookie_name = os.getenv(Constants.FABRIC_COOKIE_NAME)
+
+        from ..external_api.credmgr_client import CredmgrClient
+        client = CredmgrClient(credmgr_host=cmhost,
+                                cookie_name=cookie_name or "fabric-service")
+
+        result = client.refresh(
+            refresh_token=refresh_token,
+            scope=scope,
+            project_id=projectid,
+            project_name=projectname,
+            file_path=tokenlocation,
+            return_fmt="dto",
+        )
+
+        click.echo(f"Token refreshed and saved at: {tokenlocation}")
     except click.ClickException as e:
         raise e
     except Exception as e:
@@ -182,87 +333,79 @@ def refresh(ctx, cmhost: str, tokenlocation: str, projectid: str, projectname: s
 
 
 @tokens.command()
-@click.option('--cmhost', help='Credmgr Host', default=None)
-@click.option('--tokenlocation', help='Location of the file which contains the valid tokens', default=None)
-@click.option('--refreshtoken', help='Refresh token to be revoked; '
-                                     'If specified refresh token from tokenlocation is ignored!', default=None)
-@click.option('--identitytoken', help='Identity token to be revoked or to authenticate the user when revoking a '
-                                      'refresh token; If specified identity token from tokenlocation is ignored',
-              default=None)
-@click.option('--tokenhash', help='SHA256 hash for the token being revoked; If not specified, '
-                                  'it is assumed that the identity token being passed is being revoked', default=None)
+@click.option('--cmhost', help='Credential Manager host', default=None)
+@click.option('--tokenlocation', help='Path to token JSON file (defaults to ./tokens.json)', default=None)
+@click.option('--refreshtoken', help='Refresh token to revoke (overrides token file)', default=None)
+@click.option('--identitytoken', help='Identity token for authentication (overrides token file)', default=None)
+@click.option('--tokenhash', help='SHA256 hash of the token to revoke', default=None)
 @click.pass_context
 def revoke(ctx, cmhost: str, tokenlocation: str, refreshtoken: str, identitytoken: str, tokenhash: str):
-    """ Revoke token
+    """Revoke token
+
+    Revokes a refresh or identity token. Reads tokens from --tokenlocation
+    (or $FABRIC_TOKEN_LOCATION or ./tokens.json) unless --refreshtoken
+    and --identitytoken are provided explicitly.
+
+    If --refreshtoken is provided, it is revoked. Otherwise the identity
+    token (by --tokenhash) is revoked.
     """
     try:
-        fail = False
-        if cmhost is None and os.environ.get(Constants.FABRIC_CREDMGR_HOST) is None:
-            raise click.ClickException(f"Credential Manager Host must be specified!")
+        cmhost = __resolve_cmhost(cmhost)
+        cookie_name = os.getenv(Constants.FABRIC_COOKIE_NAME)
 
-        if tokenlocation is None and os.environ.get(Constants.FABRIC_TOKEN_LOCATION) is None and \
-                refreshtoken is None and identitytoken is None:
-            raise click.ClickException(f"Either Token location must be specified or pass refresh "
-                                       f"token and identity token!")
+        # Load from file if explicit tokens not provided
+        if refreshtoken is None and identitytoken is None:
+            tokenlocation = __resolve_tokenlocation(tokenlocation)
+            if not os.path.exists(tokenlocation):
+                raise click.ClickException(f"Token file not found: {tokenlocation}")
 
-        # Token in the file located at tokenlocation is being revoked
-        if tokenlocation is not None or os.environ.get(Constants.FABRIC_TOKEN_LOCATION) is not None:
-            if tokenlocation is None:
-                tokenlocation = os.getenv(Constants.FABRIC_TOKEN_LOCATION)
+            with open(tokenlocation, 'r') as f:
+                file_tokens = json.load(f)
 
-            if os.path.exists(tokenlocation):
-                with open(tokenlocation, 'r') as stream:
-                    tokens = json.loads(stream.read())
-                    refreshtoken = tokens.get(CredmgrProxy.REFRESH_TOKEN)
-                    identitytoken = tokens.get(CredmgrProxy.ID_TOKEN)
-                    tokenhash = tokens.get("token_hash")
-            else:
-                raise click.ClickException(f"Token file '{tokenlocation}' does not exist!")
+            refreshtoken = file_tokens.get("refresh_token")
+            identitytoken = file_tokens.get("id_token")
+            tokenhash = tokenhash or file_tokens.get("token_hash")
 
-        if cmhost is None:
-            cmhost = os.environ.get(Constants.FABRIC_CREDMGR_HOST)
+        if not identitytoken:
+            raise click.ClickException("Identity token is required for revocation")
 
-        cm_proxy = CredmgrProxy(credmgr_host=cmhost)
-        if refreshtoken is None:
-            status, error_str = cm_proxy.revoke(identity_token=identitytoken, token_hash=tokenhash,
-                                                token_type=TokenType.Identity)
+        from ..external_api.credmgr_client import CredmgrClient
+        client = CredmgrClient(credmgr_host=cmhost,
+                                cookie_name=cookie_name or "fabric-service")
+
+        if refreshtoken:
+            client.revoke(id_token=identitytoken, token_type="refresh",
+                          refresh_token=refreshtoken)
         else:
+            if not tokenhash:
+                raise click.ClickException("Token hash is required to revoke an identity token")
+            client.revoke(id_token=identitytoken, token_type="identity",
+                          token_hash=tokenhash)
 
-            status, error_str = cm_proxy.revoke(refresh_token=refreshtoken, identity_token=identitytoken,
-                                                token_type=TokenType.Refresh)
-        from fabric_cm.credmgr.credmgr_proxy import Status as CmStatus
-        if status == CmStatus.OK:
-            click.echo("Token revoked successfully")
-        else:
-            raise click.ClickException(f"{Utils.extract_error_message(exception=error_str)}")
+        click.echo("Token revoked successfully")
     except click.ClickException as e:
         raise e
     except Exception as e:
-        traceback.print_exc()
         raise click.ClickException(str(e))
 
 
 @tokens.command()
-@click.option('--cmhost', help='Credmgr Host', default=None)
-@click.option('--tokenlocation', help='location for the tokens', default=None)
+@click.option('--tokenlocation', help='Path to token JSON file to delete', default=None)
 @click.pass_context
-def clear_cache(ctx, cmhost, tokenlocation):
-    """ Clear cached token
+def clear_cache(ctx, tokenlocation):
+    """Clear cached token
+
+    Deletes the token file at --tokenlocation, $FABRIC_TOKEN_LOCATION,
+    or ./tokens.json.
     """
     try:
-        if cmhost is None and os.environ.get(Constants.FABRIC_CREDMGR_HOST) is None:
-            raise click.ClickException(f"Credential Manager Host must be specified!")
+        tokenlocation = __resolve_tokenlocation(tokenlocation)
 
-        if tokenlocation is None:
-            raise click.ClickException(f"Token location must be specified !")
-
-        slice_manager = __get_slice_manager(cm_host=cmhost, token_location=tokenlocation)
-
-        status, error_str = slice_manager.clear_token_cache(file_name=tokenlocation)
-        if status == Status.OK:
-            click.echo("Token cache cleared successfully")
+        if os.path.exists(tokenlocation):
+            os.remove(tokenlocation)
+            click.echo(f"Token cache cleared: {tokenlocation}")
         else:
-            raise click.ClickException(f"{Utils.extract_error_message(exception=error_str)}")
+            click.echo(f"No token file found at: {tokenlocation}")
 
     except click.ClickException as e:
         raise e
@@ -273,172 +416,152 @@ def clear_cache(ctx, cmhost, tokenlocation):
 @click.group()
 @click.pass_context
 def slices(ctx):
-    """ Slice management
-        (set $FABRIC_ORCHESTRATOR_HOST => Orchestrator, $FABRIC_CREDMGR_HOST => CredentialManager,
-        $FABRIC_TOKEN_LOCATION => Location of the token file, $FABRIC_PROJECT_ID => Project Id)
+    """Slice management
+
+    Create, query, modify, and delete slices. Requires $FABRIC_ORCHESTRATOR_HOST,
+    $FABRIC_CREDMGR_HOST, $FABRIC_TOKEN_LOCATION, and $FABRIC_PROJECT_ID.
     """
 
 
 @slices.command()
-@click.option('--cmhost', help='Credmgr Host', default=None)
-@click.option('--ochost', help='Orchestrator Host', default=None)
-@click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--projectid', default=None, help='project name')
+@click.option('--cmhost', help='Credential Manager host', default=None)
+@click.option('--ochost', help='Orchestrator host', default=None)
+@click.option('--tokenlocation', help='Path to token JSON file (defaults to $FABRIC_TOKEN_LOCATION or ./tokens.json)', default=None)
+@click.option('--projectid', default=None, help='Project UUID')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
-              default='all', help='scope')
-@click.option('--sliceid', default=None, help='Slice Id')
-@click.option('--state', default=None, help='Slice State')
+              default='all', help='Token scope')
+@click.option('--sliceid', default=None, help='Slice UUID (omit to list all)')
+@click.option('--state', default=None, help='Filter by slice state')
+@click.option('--all', 'show_all', is_flag=True, default=False, help='Include Dead and Closing slices')
+@click.option('--json', 'as_json', is_flag=True, default=False, help='Output raw JSON instead of table')
 @click.pass_context
-def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, sliceid: str, state: str):
-    """ Query slice_editor slice(s)
+def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, sliceid: str, state: str,
+          show_all: bool, as_json: bool):
+    """Query slices
+
+    List all slices or query a specific slice by --sliceid. By default,
+    Dead and Closing slices are hidden; use --all to include them.
+    Use --json for raw JSON output.
     """
     try:
-        slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
-                                            token_location=tokenlocation)
-        status = None
-        response = None
-        includes = []
-        if state is not None:
-            slice_state = SliceState.state_from_str(state)
-            if slice_state is not None:
-                includes.append(slice_state)
-
-        status, response = slice_manager.slices(includes=includes, slice_id=sliceid)
-
-        if status == Status.OK and not isinstance(response, Exception):
-            click.echo(json.dumps(list(map(lambda i: i.to_dict(), response)),indent=2))
+        fm = __get_fabric_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
+                                  token_location=tokenlocation)
+        states = [state] if state else None
+        excludes = None if (show_all or state) else ["Dead", "Closing"]
+        result = fm.list_slices(slice_id=sliceid, states=states, exclude_states=excludes, return_fmt="dict")
+        if as_json:
+            click.echo(json.dumps(result, indent=2))
         else:
-            click.echo(Utils.extract_error_message(exception=response))
-
-    except TokenExpiredException:
-        raise click.ClickException("Unauthorized: Valid token required")
+            _print_slices(result)
+    except click.ClickException:
+        raise
     except Exception as e:
         raise click.ClickException(str(e))
 
 
 @slices.command()
-@click.option('--cmhost', help='Credmgr Host', default=None)
-@click.option('--ochost', help='Orchestrator Host', default=None)
-@click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--projectid', default=None, help='project name')
+@click.option('--cmhost', help='Credential Manager host', default=None)
+@click.option('--ochost', help='Orchestrator host', default=None)
+@click.option('--tokenlocation', help='Path to token JSON file (defaults to $FABRIC_TOKEN_LOCATION or ./tokens.json)', default=None)
+@click.option('--projectid', default=None, help='Project UUID')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
-              default='all', help='scope')
-@click.option('--slicename', help='Slice Name', required=True)
-@click.option('--slicegraph', help='Slice Graph', required=True)
-@click.option('--sshkey', help='SSH Key', required=True)
-@click.option('--leaseend', help='Lease End', default=None)
+              default='all', help='Token scope')
+@click.option('--slicename', help='Slice name', required=True)
+@click.option('--slicegraph', help='Slice graph definition', required=True)
+@click.option('--sshkey', help='SSH public key', required=True)
+@click.option('--leaseend', help='Lease end time', default=None)
 @click.pass_context
 def create(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, slicename: str,
            slicegraph: str, sshkey: str, leaseend: str):
-    """ Create slice_editor slice
+    """Create a slice
+
+    Create a new slice with the given name, graph, and SSH key.
     """
     try:
-        slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
-                                            token_location=tokenlocation)
-        status, response = slice_manager.create(slice_name=slicename, slice_graph=slicegraph, ssh_key=sshkey,
-                                                lease_end_time=leaseend)
-
-        if status == Status.OK:
-            click.echo(response)
-        else:
-            click.echo(Utils.extract_error_message(exception=response))
-
-    except TokenExpiredException:
-        raise click.ClickException("Unauthorized: Valid token required")
+        fm = __get_fabric_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
+                                  token_location=tokenlocation)
+        result = fm.create_slice(name=slicename, graph_model=slicegraph, ssh_keys=[sshkey],
+                                 lease_end_time=leaseend, return_fmt="dict")
+        click.echo(json.dumps(result, indent=2))
+    except click.ClickException:
+        raise
     except Exception as e:
         raise click.ClickException(str(e))
 
 
 @slices.command()
-@click.option('--cmhost', help='Credmgr Host', default=None)
-@click.option('--ochost', help='Orchestrator Host', default=None)
-@click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--projectid', default=None, help='project name')
+@click.option('--cmhost', help='Credential Manager host', default=None)
+@click.option('--ochost', help='Orchestrator host', default=None)
+@click.option('--tokenlocation', help='Path to token JSON file (defaults to $FABRIC_TOKEN_LOCATION or ./tokens.json)', default=None)
+@click.option('--projectid', default=None, help='Project UUID')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
-              default='all', help='scope')
-@click.option('--sliceid', help='Slice Id', required=True)
-@click.option('--slicegraph', help='Slice Graph', required=True)
+              default='all', help='Token scope')
+@click.option('--sliceid', help='Slice UUID', required=True)
+@click.option('--slicegraph', help='Updated slice graph definition', required=True)
 @click.pass_context
 def modify(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, sliceid: str,
            slicegraph: str):
-    """ Modify an existing slice
+    """Modify a slice
+
+    Update an existing slice with a new graph definition.
     """
     try:
-        slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
-                                            token_location=tokenlocation)
-        status, response = slice_manager.modify(slice_id=sliceid, slice_graph=slicegraph)
-
-        if status == Status.OK:
-            click.echo(response)
-        else:
-            click.echo(Utils.extract_error_message(exception=response))
-
-    except TokenExpiredException:
-        raise click.ClickException("Unauthorized: Valid token required")
+        fm = __get_fabric_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
+                                  token_location=tokenlocation)
+        result = fm.modify_slice(slice_id=sliceid, graph_model=slicegraph, return_fmt="dict")
+        click.echo(json.dumps(result, indent=2))
+    except click.ClickException:
+        raise
     except Exception as e:
         raise click.ClickException(str(e))
 
 
 @slices.command()
-@click.option('--cmhost', help='Credmgr Host', default=None)
-@click.option('--ochost', help='Orchestrator Host', default=None)
-@click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--projectid', default=None, help='project name')
+@click.option('--cmhost', help='Credential Manager host', default=None)
+@click.option('--ochost', help='Orchestrator host', default=None)
+@click.option('--tokenlocation', help='Path to token JSON file (defaults to $FABRIC_TOKEN_LOCATION or ./tokens.json)', default=None)
+@click.option('--projectid', default=None, help='Project UUID')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
-              default='all', help='scope')
-@click.option('--sliceid', help='Slice Id', required=True)
+              default='all', help='Token scope')
+@click.option('--sliceid', help='Slice UUID', required=True)
 @click.pass_context
 def modifyaccept(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, sliceid: str):
-    """ Accept the modified slice
+    """Accept a modified slice
+
+    Accept the pending modifications on a slice.
     """
     try:
-        slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
-                                            token_location=tokenlocation)
-        status, response = slice_manager.modify_accept(slice_id=sliceid)
-
-        if status == Status.OK:
-            click.echo(response)
-        else:
-            click.echo(Utils.extract_error_message(exception=response))
-
-    except TokenExpiredException:
-        raise click.ClickException("Unauthorized: Valid token required")
+        fm = __get_fabric_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
+                                  token_location=tokenlocation)
+        result = fm.accept_modify(slice_id=sliceid, return_fmt="dict")
+        click.echo(json.dumps(result, indent=2))
+    except click.ClickException:
+        raise
     except Exception as e:
         raise click.ClickException(str(e))
 
 
 @slices.command()
-@click.option('--cmhost', help='Credmgr Host', default=None)
-@click.option('--ochost', help='Orchestrator Host', default=None)
-@click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--projectid', default=None, help='project name')
+@click.option('--cmhost', help='Credential Manager host', default=None)
+@click.option('--ochost', help='Orchestrator host', default=None)
+@click.option('--tokenlocation', help='Path to token JSON file (defaults to $FABRIC_TOKEN_LOCATION or ./tokens.json)', default=None)
+@click.option('--projectid', default=None, help='Project UUID')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
-              default='all', help='scope')
-@click.option('--sliceid', help='Slice Id', required=False)
+              default='all', help='Token scope')
+@click.option('--sliceid', help='Slice UUID', required=True)
 @click.pass_context
 def delete(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, sliceid: str):
-    """ Delete slice_editor slice
+    """Delete a slice
+
+    Delete a slice by --sliceid.
     """
     try:
-        slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
-                                            token_location=tokenlocation)
-        slice_object = None
-        if sliceid is not None:
-            status, response = slice_manager.slices(slice_id=sliceid)
-            if status != Status.OK or isinstance(response, Exception):
-                click.echo(f'Delete Slice failed: {status.interpret(exception=response)}')
-                return
-            slice_object = response[0]
-
-        status, response = slice_manager.delete(slice_object=slice_object)
-
-        if status == Status.OK:
-            click.echo(response)
-        else:
-            click.echo(Utils.extract_error_message(exception=response))
-
-    except TokenExpiredException:
-        raise click.ClickException("Unauthorized: Valid token required")
+        fm = __get_fabric_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
+                                  token_location=tokenlocation)
+        fm.delete_slice(slice_id=sliceid)
+        click.echo(f"Slice {sliceid} deleted successfully")
+    except click.ClickException:
+        raise
     except Exception as e:
         raise click.ClickException(str(e))
 
@@ -446,44 +569,46 @@ def delete(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sc
 @click.group()
 @click.pass_context
 def slivers(ctx):
-    """ Sliver management
-        (set $FABRIC_ORCHESTRATOR_HOST => Orchestrator, $FABRIC_CREDMGR_HOST => CredentialManager,
-        $FABRIC_TOKEN_LOCATION => Location of the token file, $FABRIC_PROJECT_ID => Project Id)
+    """Sliver management
+
+    Query slivers within a slice. Requires $FABRIC_ORCHESTRATOR_HOST,
+    $FABRIC_CREDMGR_HOST, $FABRIC_TOKEN_LOCATION, and $FABRIC_PROJECT_ID.
     """
 
 
 @slivers.command()
-@click.option('--cmhost', help='Credmgr Host', default=None)
-@click.option('--ochost', help='Orchestrator Host', default=None)
-@click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--projectid', default=None, help='project name')
+@click.option('--cmhost', help='Credential Manager host', default=None)
+@click.option('--ochost', help='Orchestrator host', default=None)
+@click.option('--tokenlocation', help='Path to token JSON file (defaults to $FABRIC_TOKEN_LOCATION or ./tokens.json)', default=None)
+@click.option('--projectid', default=None, help='Project UUID')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
-              default='all', help='scope')
-@click.option('--sliceid', help='Slice Id')
-@click.option('--sliverid', default=None, help='Sliver Id')
+              default='all', help='Token scope')
+@click.option('--sliceid', help='Slice UUID', required=True)
+@click.option('--sliverid', default=None, help='Sliver UUID (omit to list all)')
+@click.option('--json', 'as_json', is_flag=True, default=False, help='Output raw JSON instead of table')
 @click.pass_context
-def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, sliceid: str, sliverid: str):
-    """ Query slice_editor slice sliver(s)
+def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, sliceid: str, sliverid: str,
+          as_json: bool):
+    """Query slivers
+
+    List all slivers in a slice, or query a specific sliver by --sliverid.
+    Use --json for raw JSON output.
     """
     try:
-        slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
-                                            token_location=tokenlocation)
-
-        status, response = slice_manager.slices(slice_id=sliceid)
-        if status != Status.OK:
-            click.echo(f'Query Sliver(s) failed: {status.interpret(exception=response)}')
-            return
-
-        slice_object = response[0]
-        status, response = slice_manager.slivers(slice_object=slice_object)
-
-        if status == Status.OK and not isinstance(response, Exception):
-            click.echo(json.dumps(list(map(lambda i: __unpack(i.to_dict()), response)),indent=2))
+        fm = __get_fabric_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
+                                  token_location=tokenlocation)
+        if sliverid:
+            result = fm.get_sliver(slice_id=sliceid, sliver_id=sliverid, return_fmt="dict")
         else:
-            click.echo(Utils.extract_error_message(exception=response))
-
-    except TokenExpiredException:
-        raise click.ClickException("Unauthorized: Valid token required")
+            result = fm.list_slivers(slice_id=sliceid, return_fmt="dict")
+        if as_json:
+            click.echo(json.dumps(result, indent=2))
+        else:
+            if isinstance(result, dict):
+                result = [result]
+            _print_slivers(result)
+    except click.ClickException:
+        raise
     except Exception as e:
         raise click.ClickException(str(e))
 
@@ -491,36 +616,40 @@ def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sco
 @click.group()
 @click.pass_context
 def resources(ctx):
-    """ Resource management
-        (set $FABRIC_ORCHESTRATOR_HOST => Orchestrator, $FABRIC_CREDMGR_HOST => CredentialManager, $FABRIC_PROJECT_ID => Project Id)
+    """Resource management
+
+    Query available testbed resources. Requires $FABRIC_ORCHESTRATOR_HOST,
+    $FABRIC_CREDMGR_HOST, and $FABRIC_PROJECT_ID.
     """
 
 
 @resources.command()
-@click.option('--cmhost', help='Credmgr Host', default=None)
-@click.option('--ochost', help='Orchestrator Host', default=None)
-@click.option('--tokenlocation', help='location for the tokens', default=None)
-@click.option('--projectid', default=None, help='project name')
+@click.option('--cmhost', help='Credential Manager host', default=None)
+@click.option('--ochost', help='Orchestrator host', default=None)
+@click.option('--tokenlocation', help='Path to token JSON file (defaults to $FABRIC_TOKEN_LOCATION or ./tokens.json)', default=None)
+@click.option('--projectid', default=None, help='Project UUID')
 @click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
-              default='all', help='scope')
-@click.option('--force', default=False, help='Force current snapshot')
+              default='all', help='Token scope')
+@click.option('--force', is_flag=True, default=False, help='Force a fresh snapshot instead of using cache')
+@click.option('--summary', is_flag=True, default=False, help='Show JSON summary instead of full topology')
 @click.pass_context
-def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, force: bool):
-    """ Query resources
+def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, scope: str, force: bool, summary: bool):
+    """Query resources
+
+    Show available testbed resources. Use --force to bypass the cache.
+    Use --summary for a compact JSON overview.
     """
     try:
-        slice_manager = __get_slice_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
-                                            token_location=tokenlocation)
-
-        status, response = slice_manager.resources(force_refresh=force)
-
-        if status == Status.OK:
-            click.echo(response)
+        fm = __get_fabric_manager(cm_host=cmhost, oc_host=ochost, project_id=projectid, scope=scope,
+                                  token_location=tokenlocation)
+        if summary:
+            result = fm.resources_summary(force_refresh=force)
+            click.echo(json.dumps(result, indent=2))
         else:
-            click.echo(Utils.extract_error_message(exception=response))
-
-    except TokenExpiredException:
-        raise click.ClickException("Unauthorized: Valid token required")
+            result = fm.resources(force_refresh=force)
+            click.echo(result)
+    except click.ClickException:
+        raise
     except Exception as e:
         raise click.ClickException(str(e))
 
@@ -529,4 +658,3 @@ cli.add_command(tokens)
 cli.add_command(slices)
 cli.add_command(slivers)
 cli.add_command(resources)
-

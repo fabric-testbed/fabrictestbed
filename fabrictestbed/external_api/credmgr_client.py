@@ -1,0 +1,872 @@
+#!/usr/bin/env python3
+# MIT License
+#
+# Author: Komal Thareja (kthare10@renci.org)
+
+from __future__ import annotations
+
+import base64
+import json
+import logging
+import socket
+import threading
+import time
+import webbrowser
+from dataclasses import dataclass, field
+from http.server import HTTPServer, BaseHTTPRequestHandler
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, Union
+from urllib.parse import urlencode, urlparse, parse_qs
+
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+# Optional: if present, we can do GUI login to get a cookie.
+try:
+    from fabric_cm.credmgr.session_helper import SessionHelper  # type: ignore
+    _HAS_SESSION_HELPER = True
+except Exception:
+    _HAS_SESSION_HELPER = False
+
+
+# =========================
+# DTOs
+# =========================
+
+@dataclass(slots=True)
+class TokenDTO:
+    token_hash: str
+    created_at: str
+    expires_at: str
+    state: str
+    created_from: Optional[str] = None
+    comment: Optional[str] = None
+    id_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+
+    @staticmethod
+    def from_dict(d: Dict[str, Any]) -> "TokenDTO":
+        return TokenDTO(
+            token_hash=d.get("token_hash"),
+            created_at=d.get("created_at"),
+            expires_at=d.get("expires_at"),
+            state=d.get("state"),
+            created_from=d.get("created_from"),
+            comment=d.get("comment"),
+            id_token=d.get("id_token"),
+            refresh_token=d.get("refresh_token"),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "token_hash": self.token_hash,
+            "created_at": self.created_at,
+            "expires_at": self.expires_at,
+            "state": self.state,
+            "created_from": self.created_from,
+            "comment": self.comment,
+            "id_token": self.id_token,
+            "refresh_token": self.refresh_token,
+        }
+
+
+@dataclass(slots=True)
+class ProjectMembershipDTO:
+    is_creator: Optional[bool] = None
+    is_lead: Optional[bool] = None
+    is_member: Optional[bool] = None
+    is_owner: Optional[bool] = None
+    is_token_holder: Optional[bool] = None
+
+    @staticmethod
+    def from_dict(d: Dict[str, Any]) -> "ProjectMembershipDTO":
+        return ProjectMembershipDTO(
+            is_creator=d.get("is_creator"),
+            is_lead=d.get("is_lead"),
+            is_member=d.get("is_member"),
+            is_owner=d.get("is_owner"),
+            is_token_holder=d.get("is_token_holder"),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "is_creator": self.is_creator,
+            "is_lead": self.is_lead,
+            "is_member": self.is_member,
+            "is_owner": self.is_owner,
+            "is_token_holder": self.is_token_holder,
+        }
+
+
+@dataclass(slots=True)
+class ProjectDTO:
+    name: Optional[str] = None
+    uuid: Optional[str] = None
+    tags: List[str] = field(default_factory=list)
+    memberships: Optional[ProjectMembershipDTO] = None
+
+    @staticmethod
+    def from_dict(d: Dict[str, Any]) -> "ProjectDTO":
+        memberships = d.get("memberships") or {}
+        return ProjectDTO(
+            name=d.get("name"),
+            uuid=d.get("uuid"),
+            tags=d.get("tags") or [],
+            memberships=ProjectMembershipDTO.from_dict(memberships) if memberships else None,
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        data: Dict[str, Any] = {
+            "name": self.name,
+            "uuid": self.uuid,
+            "tags": self.tags or [],
+        }
+        if self.memberships is not None:
+            data["memberships"] = self.memberships.to_dict()
+        return data
+
+
+@dataclass(slots=True)
+class RoleDTO:
+    name: Optional[str] = None
+
+    @staticmethod
+    def from_dict(d: Dict[str, Any]) -> "RoleDTO":
+        return RoleDTO(name=d.get("name"))
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {"name": self.name}
+
+
+@dataclass(slots=True)
+class DecodedTokenDTO:
+    token: Dict[str, Any] = field(default_factory=dict)
+    sub: Optional[str] = None
+    iss: Optional[str] = None
+    given_name: Optional[str] = None
+    aud: Optional[str] = None
+    acr: Optional[str] = None
+    azp: Optional[str] = None
+    auth_time: Optional[int] = None
+    name: Optional[str] = None
+    exp: Optional[int] = None
+    iat: Optional[int] = None
+    family_name: Optional[str] = None
+    jti: Optional[str] = None
+    email: Optional[str] = None
+    projects: List[ProjectDTO] = field(default_factory=list)
+    roles: List[RoleDTO] = field(default_factory=list)
+    scope: Optional[str] = None
+    uuid: Optional[str] = None
+
+    @staticmethod
+    def _to_int(value: Any) -> Optional[int]:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def from_dict(d: Dict[str, Any]) -> "DecodedTokenDTO":
+        # API returns { ..., "token": {...} }
+        token = d.get("token") or {}
+        projects = [ProjectDTO.from_dict(p) for p in (token.get("projects") or [])]
+        roles = [RoleDTO.from_dict(r) for r in (token.get("roles") or [])]
+        return DecodedTokenDTO(
+            token=token,
+            sub=token.get("sub"),
+            iss=token.get("iss"),
+            given_name=token.get("given_name"),
+            aud=token.get("aud"),
+            acr=token.get("acr"),
+            azp=token.get("azp"),
+            auth_time=DecodedTokenDTO._to_int(token.get("auth_time")),
+            name=token.get("name"),
+            exp=DecodedTokenDTO._to_int(token.get("exp")),
+            iat=DecodedTokenDTO._to_int(token.get("iat")),
+            family_name=token.get("family_name"),
+            jti=token.get("jti"),
+            email=token.get("email"),
+            projects=projects,
+            roles=roles,
+            scope=token.get("scope"),
+            uuid=token.get("uuid"),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        if self.token:
+            return {"token": self.token}
+        token: Dict[str, Any] = {}
+        if self.sub is not None:
+            token["sub"] = self.sub
+        if self.iss is not None:
+            token["iss"] = self.iss
+        if self.given_name is not None:
+            token["given_name"] = self.given_name
+        if self.aud is not None:
+            token["aud"] = self.aud
+        if self.acr is not None:
+            token["acr"] = self.acr
+        if self.azp is not None:
+            token["azp"] = self.azp
+        if self.auth_time is not None:
+            token["auth_time"] = self.auth_time
+        if self.name is not None:
+            token["name"] = self.name
+        if self.exp is not None:
+            token["exp"] = self.exp
+        if self.iat is not None:
+            token["iat"] = self.iat
+        if self.family_name is not None:
+            token["family_name"] = self.family_name
+        if self.jti is not None:
+            token["jti"] = self.jti
+        if self.email is not None:
+            token["email"] = self.email
+        if self.projects:
+            token["projects"] = [p.to_dict() for p in self.projects]
+        if self.roles:
+            token["roles"] = [r.to_dict() for r in self.roles]
+        if self.scope is not None:
+            token["scope"] = self.scope
+        if self.uuid is not None:
+            token["uuid"] = self.uuid
+        return {"token": token}
+
+
+# =========================
+# Errors
+# =========================
+
+class CredMgrError(Exception):
+    pass
+
+
+class CredMgrValidationError(CredMgrError):
+    pass
+
+
+class CredMgrHTTPError(CredMgrError):
+    def __init__(self, status_code: int, message: str, body_preview: str = ""):
+        super().__init__(f"{status_code}: {message}\n{body_preview}")
+        self.status_code = status_code
+        self.body_preview = body_preview
+
+
+# =========================
+# Core client (merged)
+# =========================
+
+class CredmgrClient:
+    """
+    Single-class client that merges the HTTP layer and the higher-level token helpers.
+
+    Features:
+    - requests + retries
+    - structured logging
+    - optional GUI login cookie via SessionHelper (if importable)
+    - DTO/dataclass conversions
+    - return_fmt = "dict" | "dto" for MCP friendliness
+    - on-disk token.json helpers
+    """
+
+    TIME_FORMAT = "%Y-%m-%d %H:%M:%S %z"
+
+    def __init__(
+        self,
+        credmgr_host: str,
+        *,
+        timeout: float = 30.0,
+        retries: int = 3,
+        backoff_factor: float = 0.3,
+        logger: Optional[logging.Logger] = None,
+        http_debug: bool = False,
+        cookie_provider: Optional[Callable[[], str]] = None,  # alternative to SessionHelper
+        cookie_name: str = "fabric-service",
+    ):
+        if not credmgr_host:
+            raise CredMgrError("credmgr_host must be provided")
+
+        if not credmgr_host.startswith("http"):
+            base = f"https://{credmgr_host}"
+        else:
+            base = credmgr_host
+        if not base.endswith("/"):
+            base += "/"
+
+        # OpenAPI shows base like .../credmgr/
+        if not base.endswith("credmgr/"):
+            base += "credmgr/"
+
+        self.base_url = base
+        self.timeout = timeout
+        self.session = self._build_session(retries, backoff_factor)
+        self.log = logger or logging.getLogger("fabric.credmgr")
+        self.http_debug = http_debug
+        self.cookie_provider = cookie_provider
+        self.cookie_name = cookie_name
+        self._cookie: Optional[str] = None  # cache between calls
+
+    # -------------
+    # Session + HTTP
+    # -------------
+
+    @staticmethod
+    def _build_session(retries: int, backoff: float) -> requests.Session:
+        s = requests.Session()
+        retry = Retry(
+            total=retries,
+            connect=retries,
+            read=retries,
+            status=retries,
+            backoff_factor=backoff,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=frozenset(["GET", "POST", "PUT", "DELETE"]),
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retry, pool_connections=10, pool_maxsize=20)
+        s.mount("https://", adapter)
+        s.mount("http://", adapter)
+        return s
+
+    def _req(
+        self,
+        method: str,
+        path: str,
+        *,
+        headers: Optional[Dict[str, str]] = None,
+        params: Optional[Union[Dict[str, Any], List[Tuple[str, Any]]]] = None,
+        json_body: Optional[Dict[str, Any]] = None,
+        data: Optional[Union[str, bytes]] = None,
+        cookie: Optional[str] = None,
+    ) -> requests.Response:
+        url = self.base_url + path.lstrip("/")
+        hdrs = {"Accept": "application/json"}
+        if headers:
+            hdrs.update(headers)
+
+        cookies = {}
+        if cookie:
+            cookies[self.cookie_name] = cookie
+
+        t0 = time.perf_counter()
+        resp = self.session.request(
+            method=method,
+            url=url,
+            headers=hdrs,
+            params=params,
+            json=json_body,
+            data=data,
+            cookies=cookies if cookies else None,
+            timeout=self.timeout,
+        )
+        dt = (time.perf_counter() - t0) * 1000.0
+        self.log.info(
+            "credmgr_http_call",
+            extra={
+                "event": "http_call",
+                "http_method": method,
+                "url_path": path,
+                "status_code": resp.status_code,
+                "elapsed_ms": round(dt, 2),
+                "resp_len": len(resp.content or b""),
+            },
+        )
+
+        if not (200 <= resp.status_code < 300):
+            if self.http_debug:
+                self.log.debug(
+                    "credmgr_http_failure_dump",
+                    extra={
+                        "event": "http_failure",
+                        "http_method": method,
+                        "url": url,
+                        "status_code": resp.status_code,
+                        "request_headers": hdrs,
+                        "request_params": params,
+                        "request_json": json_body,
+                        "response_text": resp.text[:2000],
+                    },
+                )
+            raise CredMgrHTTPError(resp.status_code, "HTTP request failed", resp.text[:2000])
+        return resp
+
+    @staticmethod
+    def _json(resp: requests.Response) -> Dict[str, Any]:
+        try:
+            return resp.json() if resp.content else {}
+        except Exception as e:
+            raise CredMgrError(f"Failed to parse JSON: {e}; status={resp.status_code}, text={resp.text[:500]}")
+
+    # -------------
+    # Cookie helpers
+    # -------------
+
+    def _resolve_cookie(
+        self,
+        *,
+        cookie: Optional[str],
+        use_gui_login: bool,
+        browser_name: str,
+        base_ui_url: Optional[str] = None,
+        wait_timeout: int = 500,
+        wait_interval: int = 5,
+    ) -> Optional[str]:
+        """
+        Resolve a cookie in priority:
+        1) explicit cookie argument
+        2) cached self._cookie
+        3) cookie_provider() if set
+        4) GUI login via SessionHelper (if available and use_gui_login=True)
+
+        base_ui_url defaults to "<scheme>://<host>/" inferred from self.base_url when not provided.
+        """
+        if cookie:
+            self._cookie = cookie
+            return cookie
+        if self._cookie:
+            return self._cookie
+        if self.cookie_provider:
+            try:
+                ck = self.cookie_provider()
+                if ck:
+                    self._cookie = ck
+                    return ck
+            except Exception as e:
+                self.log.warning("cookie_provider_failed", extra={"error": str(e)})
+
+        if use_gui_login:
+            if not _HAS_SESSION_HELPER:
+                raise CredMgrError("SessionHelper is not available; cannot perform GUI login.")
+            # infer https://<host>/
+            if not base_ui_url:
+                # self.base_url like https://host/credmgr/ -> want https://host/
+                parts = self.base_url.split("/credmgr/")[0]
+                if not parts.endswith("/"):
+                    parts += "/"
+                base_ui_url = parts
+            session = SessionHelper(
+                url=base_ui_url,
+                cookie_name=self.cookie_name,
+                wait_timeout=wait_timeout,
+                wait_interval=wait_interval,
+            )
+            ck = session.login(browser_name=browser_name)
+            self._cookie = ck
+            return ck
+
+        return None
+
+    # =========================
+    # CredMgr API
+    # =========================
+
+    def version(self) -> Dict[str, Any]:
+        resp = self._req("GET", "/version")
+        return self._json(resp)
+
+    def certs(self) -> Dict[str, Any]:
+        resp = self._req("GET", "/certs")
+        return self._json(resp)
+
+    def create(
+        self,
+        *,
+        scope: str = "all",
+        project_id: Optional[str] = None,
+        project_name: Optional[str] = None,
+        lifetime_hours: int = 4,
+        comment: str = "Create Token via GUI",
+        # cookie acquisition options:
+        cookie: Optional[str] = None,
+        use_gui_login: bool = False,
+        browser_name: str = "chrome",
+        base_ui_url: Optional[str] = None,
+        wait_timeout: int = 500,
+        wait_interval: int = 5,
+        # output options:
+        file_path: Optional[Union[str, Path]] = None,
+        return_fmt: Literal["dict", "dto"] = "dict",
+    ) -> List[TokenDTO] | List[Dict[str, Any]]:
+        """
+        Create token(s) using a GUI-authenticated cookie.
+        Provide either `cookie` or set `use_gui_login=True` (requires SessionHelper).
+        """
+        if not project_id and not project_name:
+            raise CredMgrValidationError("project_id or project_name must be specified")
+
+        ck = self._resolve_cookie(
+            cookie=cookie,
+            use_gui_login=use_gui_login,
+            browser_name=browser_name,
+            base_ui_url=base_ui_url,
+            wait_timeout=wait_timeout,
+            wait_interval=wait_interval,
+        )
+        if not ck:
+            raise CredMgrValidationError("No cookie available to call /tokens/create")
+
+        params: Dict[str, Any] = {
+            "scope": scope,
+            "lifetime": lifetime_hours,
+            "comment": comment,
+        }
+        if project_id:
+            params["project_id"] = project_id
+        if project_name:
+            params["project_name"] = project_name
+
+        resp = self._req("POST", "/tokens/create", params=params, cookie=ck)
+        payload = self._json(resp)
+        data = payload.get("data") or []
+
+        if file_path:
+            # save the first token (most useful) to disk preserving the familiar layout
+            first = data[0] if data else {}
+            self.save_file(file_path, first)
+
+        tokens = [TokenDTO.from_dict(x) for x in data]
+        return [t.to_dict() for t in tokens] if return_fmt == "dict" else tokens
+
+    def create_cli(
+        self,
+        *,
+        scope: str = "all",
+        project_id: Optional[str] = None,
+        project_name: Optional[str] = None,
+        lifetime_hours: int = 4,
+        comment: str = "Create Token via CLI",
+        file_path: Optional[Union[str, Path]] = None,
+        open_browser: bool = True,
+        timeout: int = 300,
+        return_fmt: Literal["dict", "dto"] = "dict",
+    ) -> List[TokenDTO] | List[Dict[str, Any]]:
+        """
+        Create token(s) via browser-based login flow with localhost callback.
+
+        Starts a local HTTP server, opens (or prints) the CM login URL,
+        and waits for the CM to redirect back with token data after the
+        user completes authentication.
+
+        :param scope: Token scope.
+        :param project_id: Project UUID.
+        :param project_name: Project name.
+        :param lifetime_hours: Token lifetime in hours.
+        :param comment: Comment for the token.
+        :param file_path: Optional path to save token JSON.
+        :param open_browser: Whether to attempt opening the browser automatically.
+        :param timeout: Seconds to wait for the user to complete login.
+        :param return_fmt: "dict" or "dto".
+        :return: List of TokenDTO or dicts.
+        """
+        # Start local callback server
+        result_holder: Dict[str, Any] = {}
+        error_holder: Dict[str, str] = {}
+        server_ready = threading.Event()
+        server = self._start_callback_server(result_holder, error_holder, server_ready)
+        server_ready.wait(timeout=10)
+
+        port = server.server_address[1]
+        redirect_uri = f"http://localhost:{port}/callback"
+
+        # Build the CM create_cli URL
+        params: Dict[str, Any] = {
+            "scope": scope,
+            "lifetime": lifetime_hours,
+            "comment": comment,
+            "redirect_uri": redirect_uri,
+        }
+        if project_id:
+            params["project_id"] = project_id
+        if project_name:
+            params["project_name"] = project_name
+
+        # The create_cli endpoint is behind vouch auth, so the full URL
+        # goes through nginx which handles the login redirect if needed.
+        # base_url is like https://host/credmgr/ -> we need https://host/credmgr/tokens/create_cli
+        login_url = self.base_url + "tokens/create_cli?" + urlencode(params)
+
+        if open_browser:
+            try:
+                opened = webbrowser.open(login_url)
+            except Exception:
+                opened = False
+        else:
+            opened = False
+
+        if opened:
+            self.log.info("Browser opened for authentication")
+        else:
+            self.log.info("Could not open browser automatically")
+
+        # Always print the URL so user can open manually
+        print(f"\nPlease open this URL in your browser to authenticate:\n\n  {login_url}\n")
+        print(f"Waiting for authentication (timeout: {timeout}s)...")
+        print("Press Ctrl+C to enter the authorization code manually.\n")
+
+        # Wait for callback
+        timed_out = False
+        deadline = time.time() + timeout
+        try:
+            while not result_holder and not error_holder and time.time() < deadline:
+                time.sleep(0.5)
+            if not result_holder and not error_holder:
+                timed_out = True
+        except KeyboardInterrupt:
+            timed_out = True
+        finally:
+            server.shutdown()
+
+        if error_holder:
+            raise CredMgrError(f"Authentication failed: {error_holder.get('error', 'unknown error')}")
+
+        if not result_holder and timed_out:
+            # Callback wasn't reached — likely running on a remote VM.
+            # Prompt user to paste the authorization code from the browser.
+            print("\n\nThe CLI did not receive the token automatically.")
+            print("If you are running the CLI on a remote machine, copy the")
+            print("authorization code shown in your browser and paste it below.\n")
+            try:
+                code = input("Authorization code: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                raise CredMgrError("Authentication cancelled.")
+
+            if not code:
+                raise CredMgrError("No authorization code provided.")
+
+            try:
+                decoded = json.loads(base64.urlsafe_b64decode(code + "=="))
+                result_holder.update(decoded)
+            except Exception:
+                raise CredMgrError(
+                    "Invalid authorization code. Please copy the full code "
+                    "from the browser and try again."
+                )
+
+        # Build token from the callback data
+        token_data = {
+            "id_token": result_holder.get("id_token", ""),
+            "refresh_token": result_holder.get("refresh_token", ""),
+            "token_hash": result_holder.get("token_hash", ""),
+            "created_at": result_holder.get("created_at", ""),
+            "expires_at": result_holder.get("expires_at", ""),
+            "state": result_holder.get("state", ""),
+        }
+
+        if file_path:
+            self.save_file(file_path, token_data)
+
+        token = TokenDTO.from_dict(token_data)
+        return [token.to_dict()] if return_fmt == "dict" else [token]
+
+    @staticmethod
+    def _start_callback_server(
+        result_holder: Dict[str, Any],
+        error_holder: Dict[str, str],
+        server_ready: threading.Event,
+    ) -> HTTPServer:
+        """Start a local HTTP server to receive the OAuth callback redirect."""
+
+        class CallbackHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                parsed = urlparse(self.path)
+                params = parse_qs(parsed.query)
+
+                if parsed.path == "/callback":
+                    # Check for error
+                    if "error" in params:
+                        error_holder["error"] = params["error"][0]
+                        self._respond(
+                            "<html><body><h2>Authentication failed</h2>"
+                            f"<p>{params['error'][0]}</p>"
+                            "<p>You can close this window.</p></body></html>"
+                        )
+                        return
+
+                    # Extract token data (query params are lists)
+                    for key in ("id_token", "refresh_token", "token_hash",
+                                "created_at", "expires_at", "state"):
+                        if key in params:
+                            result_holder[key] = params[key][0]
+
+                    self._respond(
+                        "<html><body>"
+                        "<h2>Authentication successful!</h2>"
+                        "<p>Token has been created. You can close this window "
+                        "and return to the terminal.</p>"
+                        "</body></html>"
+                    )
+                else:
+                    self.send_error(404)
+
+            def _respond(self, html: str):
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(html.encode())
+
+            def log_message(self, format, *args):
+                # Suppress default stderr logging
+                pass
+
+        # Find a free port
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("localhost", 0))
+            port = s.getsockname()[1]
+
+        server = HTTPServer(("localhost", port), CallbackHandler)
+
+        def serve():
+            server_ready.set()
+            server.serve_forever()
+
+        thread = threading.Thread(target=serve, daemon=True)
+        thread.start()
+        return server
+
+    def refresh(
+        self,
+        *,
+        refresh_token: str,
+        scope: str = "all",
+        project_id: Optional[str] = None,
+        project_name: Optional[str] = None,
+        file_path: Optional[Union[str, Path]] = None,
+        return_fmt: Literal["dict", "dto"] = "dict",
+    ) -> List[TokenDTO] | List[Dict[str, Any]]:
+        if not refresh_token:
+            raise CredMgrValidationError("refresh_token must be provided")
+        if not project_id and not project_name:
+            raise CredMgrValidationError("project_id or project_name must be specified")
+
+        params: Dict[str, Any] = {"scope": scope}
+        if project_id:
+            params["project_id"] = project_id
+        if project_name:
+            params["project_name"] = project_name
+
+        body = {"refresh_token": refresh_token}
+        resp = self._req("POST", "/tokens/refresh", params=params, json_body=body)
+        payload = self._json(resp)
+        data = payload.get("data") or []
+
+        if file_path and data:
+            self.save_file(file_path, data[0])
+
+        tokens = [TokenDTO.from_dict(x) for x in data]
+        return [t.to_dict() for t in tokens] if return_fmt == "dict" else tokens
+
+    def revoke(
+        self,
+        *,
+        id_token: str,
+        token_type: Literal["refresh", "identity"],
+        refresh_token: Optional[str] = None,
+        token_hash: Optional[str] = None,
+    ) -> None:
+        """
+        Revoke a refresh token or an identity token (by hash).
+        """
+        if token_type == "refresh" and not refresh_token:
+            raise CredMgrValidationError("refresh_token is required when token_type='refresh'")
+        if token_type == "identity" and not token_hash:
+            raise CredMgrValidationError("token_hash is required when token_type='identity'")
+
+        headers = {"Authorization": f"Bearer {id_token}", "Content-Type": "application/json"}
+        post_body = {"type": token_type, "token": refresh_token if token_type == "refresh" else token_hash}
+        resp = self._req("POST", "/tokens/revokes", headers=headers, json_body=post_body)
+        _ = self._json(resp)  # no-content schema in spec
+
+    def delete(self, *, id_token: str, token_hash: str) -> None:
+        headers = {"Authorization": f"Bearer {id_token}"}
+        self._req("DELETE", f"/tokens/delete/{token_hash}", headers=headers)
+
+    def delete_all(self, *, id_token: str) -> None:
+        headers = {"Authorization": f"Bearer {id_token}"}
+        self._req("DELETE", "/tokens/delete", headers=headers)
+
+    def tokens(
+        self,
+        *,
+        id_token: str,
+        project_id: Optional[str] = None,
+        token_hash: Optional[str] = None,
+        expires: Optional[str] = None,  # TIME_FORMAT on server side
+        states: Optional[List[str]] = None,
+        limit: int = 200,
+        offset: int = 0,
+        return_fmt: Literal["dict", "dto"] = "dict",
+    ) -> List[TokenDTO] | List[Dict[str, Any]]:
+        headers = {"Authorization": f"Bearer {id_token}"}
+        params: List[Tuple[str, Any]] = [("limit", limit), ("offset", offset)]
+        if token_hash:
+            params.append(("token_hash", token_hash))
+        if project_id:
+            params.append(("project_id", project_id))
+        if expires:
+            params.append(("expires", expires))
+        if states:
+            for s in states:
+                params.append(("states", s))
+
+        resp = self._req("GET", "/tokens", headers=headers, params=params)
+        payload = self._json(resp)
+        data = payload.get("data") or []
+        tokens = [TokenDTO.from_dict(x) for x in data]
+        return [t.to_dict() for t in tokens] if return_fmt == "dict" else tokens
+
+    def revoke_list(self, *, id_token: str, project_id: Optional[str] = None) -> List[str]:
+        headers = {"Authorization": f"Bearer {id_token}"}
+        params: Dict[str, Any] = {}
+        if project_id:
+            params["project_id"] = project_id
+        resp = self._req("GET", "/tokens/revoke_list", headers=headers, params=params)
+        payload = self._json(resp)
+        return payload.get("data") or []
+
+    def validate(
+        self,
+        *,
+        id_token: str,
+        return_fmt: Literal["dict", "dto"] = "dict",
+    ) -> DecodedTokenDTO | Dict[str, Any]:
+        headers = {"Content-Type": "application/json"}
+        body = {"type": "identity", "token": id_token}
+        resp = self._req("POST", "/tokens/validate", headers=headers, json_body=body)
+        payload = self._json(resp)
+        dto = DecodedTokenDTO.from_dict(payload)
+        return dto.to_dict() if return_fmt == "dict" else dto
+
+    # =========================
+    # File helpers
+    # =========================
+
+    @staticmethod
+    def save_file(file_path: Union[str, Path], token_data: Dict[str, Any]) -> None:
+        """
+        Save token data to a JSON file.
+
+        :param file_path: Path to the token file.
+        :param token_data: Token dictionary to save.
+        """
+        path = Path(file_path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(token_data, f, indent=2)
+
+    @staticmethod
+    def load_file(file_path: Union[str, Path]) -> Dict[str, Any]:
+        """
+        Load token data from a JSON file.
+
+        :param file_path: Path to the token file.
+        :return: Token dictionary.
+        """
+        path = Path(file_path)
+        if not path.exists():
+            return {}
+        with open(path, "r") as f:
+            return json.load(f)
