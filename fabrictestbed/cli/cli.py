@@ -657,7 +657,274 @@ def query(ctx, cmhost: str, ochost: str, tokenlocation: str, projectid: str, sco
         raise click.ClickException(str(e))
 
 
+@click.group()
+@click.pass_context
+def configure(ctx):
+    """Environment configuration
+
+    Set up the FABRIC config directory with SSH keys, ssh_config, and
+    fabric_rc so you can start using FABRIC from the CLI or notebooks.
+    """
+
+
+_BASTION_HOST = "bastion.fabric-testbed.net"
+
+
+@configure.command()
+@click.option('--cmhost', help='Credential Manager host', default=None)
+@click.option('--ochost', help='Orchestrator host', default=None)
+@click.option('--tokenlocation', help='Path to existing token JSON file (for authentication)', default=None)
+@click.option('--projectid', default=None, help='Project UUID')
+@click.option('--projectname', default=None, help='Project name')
+@click.option('--scope', type=click.Choice(['cf', 'mf', 'all'], case_sensitive=False),
+              default='all', help='Token scope')
+@click.option('--lifetime', default=4, help='Token lifetime in hours')
+@click.option('--no-browser', is_flag=True, default=False,
+              help='Do not attempt to open a browser automatically')
+@click.option('--config-dir', default=None,
+              help='Config directory (default: current working directory)')
+@click.option('--overwrite', is_flag=True, default=False,
+              help='Overwrite existing keys and config files')
+@click.pass_context
+def setup(ctx, cmhost, ochost, tokenlocation, projectid, projectname, scope,
+          lifetime, no_browser, config_dir, overwrite):
+    """Set up FABRIC environment
+
+    Creates the config directory, creates a token, generates bastion and
+    sliver SSH keys, and writes ssh_config and fabric_rc files.
+    """
+    try:
+        config_dir = os.path.expanduser(config_dir) if config_dir else os.getcwd()
+        os.makedirs(config_dir, exist_ok=True)
+        click.echo(f"Config directory: {config_dir}")
+
+        # Resolve hosts
+        rc = _load_fabric_rc()
+        cm = cmhost or os.getenv(Constants.FABRIC_CREDMGR_HOST) or rc.get(Constants.FABRIC_CREDMGR_HOST) or _DEFAULT_CREDMGR_HOST
+        oc = ochost or os.getenv(Constants.FABRIC_ORCHESTRATOR_HOST) or rc.get(Constants.FABRIC_ORCHESTRATOR_HOST) or _DEFAULT_ORCHESTRATOR_HOST
+        core = os.getenv(Constants.FABRIC_CORE_API_HOST) or rc.get(Constants.FABRIC_CORE_API_HOST) or _DEFAULT_CORE_API_HOST
+        pid = projectid or os.getenv(Constants.FABRIC_PROJECT_ID) or rc.get(Constants.FABRIC_PROJECT_ID)
+        pname = projectname or os.getenv(Constants.FABRIC_PROJECT_NAME) or rc.get(Constants.FABRIC_PROJECT_NAME)
+
+        # Token location in the config directory
+        config_token_path = os.path.join(config_dir, "tokens.json")
+
+        # Check if existing token is expired
+        token_needs_refresh = False
+        if not overwrite and os.path.exists(config_token_path):
+            token_needs_refresh = _is_token_expired(config_token_path)
+            if token_needs_refresh:
+                click.echo("Existing token is expired, will refresh...")
+
+        # Create or refresh token
+        if overwrite or not os.path.exists(config_token_path) or token_needs_refresh:
+            cookie_name = os.getenv(Constants.FABRIC_COOKIE_NAME)
+
+            from ..external_api.credmgr_client import CredmgrClient
+            client = CredmgrClient(credmgr_host=cm,
+                                    cookie_name=cookie_name or "fabric-service")
+
+            # Try refreshing if token exists and has a refresh_token
+            refreshed = False
+            if token_needs_refresh:
+                try:
+                    with open(config_token_path, 'r') as f:
+                        existing = json.load(f)
+                    refresh_token = existing.get("refresh_token")
+                    if refresh_token:
+                        click.echo("Refreshing token...")
+                        client.refresh(
+                            refresh_token=refresh_token,
+                            scope=scope,
+                            project_id=pid,
+                            project_name=pname,
+                            file_path=config_token_path,
+                            return_fmt="dto",
+                        )
+                        click.echo(f"  Token refreshed at: {config_token_path}")
+                        refreshed = True
+                except Exception:
+                    click.echo("  Refresh failed, creating new token...")
+
+            if not refreshed:
+                click.echo("Creating token...")
+                client.create_cli(
+                    scope=scope,
+                    project_id=pid,
+                    project_name=pname,
+                    lifetime_hours=lifetime,
+                    comment="Create Token via CLI configure",
+                    file_path=config_token_path,
+                    open_browser=not no_browser,
+                    return_fmt="dto",
+                )
+                click.echo(f"  Token saved at: {config_token_path}")
+        else:
+            click.echo(f"Token exists and is valid, skipping (use --overwrite to replace)")
+
+        # Build FabricManagerV2 using the config dir token
+        fm = __get_fabric_manager(cm_host=cmhost, oc_host=ochost, project_id=pid,
+                                  token_location=config_token_path, project_name=pname)
+
+        # If no project ID specified, use the first active project
+        if not pid:
+            click.echo("No project ID specified, fetching projects...")
+            projects = fm.get_project_info()
+            if projects:
+                pid = projects[0].get("uuid")
+                pname = projects[0].get("name")
+                click.echo(f"Using project: {pname} ({pid})")
+            else:
+                raise click.ClickException("No active projects found for this user")
+
+        # Fetch user info to get bastion_login
+        click.echo("Fetching user info...")
+        user_info = fm.get_user_info()
+        bastion_login = user_info.get("bastion_login", "")
+        if not bastion_login:
+            raise click.ClickException("Could not determine bastion_login from user info")
+        click.echo(f"Bastion username: {bastion_login}")
+
+        # Key file paths
+        bastion_key_path = os.path.join(config_dir, "fabric_bastion_key")
+        bastion_pub_path = os.path.join(config_dir, "fabric_bastion_key.pub")
+        sliver_key_path = os.path.join(config_dir, "slice_key")
+        sliver_pub_path = os.path.join(config_dir, "slice_key.pub")
+
+        # Check if bastion keys still exist on the server (they expire server-side)
+        bastion_keys_valid = False
+        sliver_keys_valid = False
+        if not overwrite and (os.path.exists(bastion_key_path) or os.path.exists(sliver_key_path)):
+            click.echo("Checking SSH keys on server...")
+            try:
+                server_keys = fm.get_ssh_keys()
+                for k in (server_keys or []):
+                    kt = k.get("keytype") or k.get("ssh_key_type") or ""
+                    if "bastion" in kt.lower():
+                        bastion_keys_valid = True
+                    if "sliver" in kt.lower():
+                        sliver_keys_valid = True
+            except Exception:
+                click.echo("  Could not verify keys on server, will regenerate")
+
+        # Generate bastion SSH keys
+        need_bastion = overwrite or not os.path.exists(bastion_key_path)
+        if not need_bastion and not bastion_keys_valid and os.path.exists(bastion_key_path):
+            click.echo("Bastion keys expired on server, regenerating...")
+            need_bastion = True
+        if need_bastion:
+            click.echo("Generating bastion SSH keys...")
+            bastion_keys = fm.create_ssh_keys(key_type="bastion",
+                                               description="bastion-key-via-cli",
+                                               comment="fabric-bastion-key")
+            if bastion_keys:
+                key_data = bastion_keys[0]
+                _write_key_file(bastion_key_path, key_data.get("private_openssh", ""), private=True)
+                _write_key_file(bastion_pub_path, key_data.get("public_openssh", ""), private=False)
+                click.echo(f"  {bastion_key_path}")
+                click.echo(f"  {bastion_pub_path}")
+        else:
+            click.echo(f"Bastion keys exist and are valid, skipping (use --overwrite to replace)")
+
+        # Generate sliver SSH keys
+        need_sliver = overwrite or not os.path.exists(sliver_key_path)
+        if not need_sliver and not sliver_keys_valid and os.path.exists(sliver_key_path):
+            click.echo("Sliver keys expired on server, regenerating...")
+            need_sliver = True
+        if need_sliver:
+            click.echo("Generating sliver SSH keys...")
+            sliver_keys = fm.create_ssh_keys(key_type="sliver",
+                                              description="sliver-key-via-cli",
+                                              comment="fabric-sliver-key")
+            if sliver_keys:
+                key_data = sliver_keys[0]
+                _write_key_file(sliver_key_path, key_data.get("private_openssh", ""), private=True)
+                _write_key_file(sliver_pub_path, key_data.get("public_openssh", ""), private=False)
+                click.echo(f"  {sliver_key_path}")
+                click.echo(f"  {sliver_pub_path}")
+        else:
+            click.echo(f"Sliver keys exist and are valid, skipping (use --overwrite to replace)")
+
+        # Write ssh_config
+        ssh_config_path = os.path.join(config_dir, "ssh_config")
+        if overwrite or not os.path.exists(ssh_config_path):
+            click.echo("Writing ssh_config...")
+            ssh_config = (
+                f"UserKnownHostsFile /dev/null\n"
+                f"StrictHostKeyChecking no\n"
+                f"ServerAliveInterval 120\n"
+                f"\n"
+                f"Host {_BASTION_HOST}\n"
+                f"     User {bastion_login}\n"
+                f"     ForwardAgent yes\n"
+                f"     Hostname %h\n"
+                f"     IdentityFile {bastion_key_path}\n"
+                f"     IdentitiesOnly yes\n"
+                f"\n"
+                f"Host * !{_BASTION_HOST}\n"
+                f"     ProxyJump {bastion_login}@{_BASTION_HOST}:22\n"
+            )
+            with open(ssh_config_path, 'w') as f:
+                f.write(ssh_config)
+            click.echo(f"  {ssh_config_path}")
+        else:
+            click.echo(f"ssh_config exists, skipping (use --overwrite to replace)")
+
+        # Write fabric_rc
+        fabric_rc_path = os.path.join(config_dir, "fabric_rc")
+        if overwrite or not os.path.exists(fabric_rc_path):
+            click.echo("Writing fabric_rc...")
+            fabric_rc_content = (
+                f"export FABRIC_CREDMGR_HOST={cm}\n"
+                f"export FABRIC_ORCHESTRATOR_HOST={oc}\n"
+                f"export FABRIC_CORE_API_HOST={core}\n"
+                f"export FABRIC_TOKEN_LOCATION={config_token_path}\n"
+                f"export FABRIC_PROJECT_ID={pid}\n"
+                f"export FABRIC_BASTION_HOST={_BASTION_HOST}\n"
+                f"export FABRIC_BASTION_USERNAME={bastion_login}\n"
+                f"export FABRIC_BASTION_KEY_LOCATION={bastion_key_path}\n"
+                f"export FABRIC_SLICE_PRIVATE_KEY_FILE={sliver_key_path}\n"
+                f"export FABRIC_SLICE_PUBLIC_KEY_FILE={sliver_pub_path}\n"
+                f"export FABRIC_BASTION_SSH_CONFIG_FILE={ssh_config_path}\n"
+            )
+            with open(fabric_rc_path, 'w') as f:
+                f.write(fabric_rc_content)
+            click.echo(f"  {fabric_rc_path}")
+        else:
+            click.echo(f"fabric_rc exists, skipping (use --overwrite to replace)")
+
+        click.echo("\nConfiguration complete!")
+
+    except click.ClickException:
+        raise
+    except Exception as e:
+        raise click.ClickException(str(e))
+
+
+def _write_key_file(path, content, private=True):
+    """Write an SSH key file with appropriate permissions."""
+    with open(path, 'w') as f:
+        f.write(content)
+    os.chmod(path, 0o600 if private else 0o644)
+
+
+def _is_token_expired(token_path):
+    """Check if the token in a JSON file is expired."""
+    try:
+        with open(token_path, 'r') as f:
+            data = json.load(f)
+        id_token = data.get("id_token")
+        if not id_token:
+            return True
+        from ..util.auth_provider import AuthProvider
+        auth = AuthProvider.from_token(id_token=id_token)
+        return auth.is_expired()
+    except Exception:
+        return True
+
+
 cli.add_command(tokens)
 cli.add_command(slices)
 cli.add_command(slivers)
 cli.add_command(resources)
+cli.add_command(configure)
