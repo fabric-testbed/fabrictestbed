@@ -373,17 +373,19 @@ class FabricManagerV2(TopologyQueryAPI):
     # User / Project Info (Core API)
     # ------------------------------------------------------------------
 
-    def get_user_info(self, *, uuid: str = None, email: str = None) -> dict:
+    def get_user_info(self, *, uuid: str = None, email: str = None, id_token: str = None) -> dict:
         """
         Retrieve user info by email or uuid.
 
         :param uuid: User's uuid.
         :param email: User's email address.
+        :param id_token: User's ID token.
         :return: User info dict (shape per Core API).
         :raises FabricManagerException: On Core API errors.
         """
         try:
-            core_api_proxy = CoreApi(core_api_host=self.core_api_host, token=self.ensure_valid_id_token())
+            core_api_proxy = CoreApi(core_api_host=self.core_api_host,
+                                     token=self.ensure_valid_id_token(id_token=id_token))
             return core_api_proxy.get_user_info(uuid=uuid, email=email)
         except Exception as e:
             error_message = Utils.extract_error_message(exception=e)
