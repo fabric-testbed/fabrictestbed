@@ -25,7 +25,7 @@
 # Author: Erica Fu (ericafu@renci.org), Komal Thareja (kthare10@renci.org)
 from click.testing import CliRunner
 
-from fabrictestbed.cli import cli
+from fabrictestbed_extensions.cli import cli
 
 
 def test_token_refresh():
