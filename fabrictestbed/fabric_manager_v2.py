@@ -170,7 +170,8 @@ class FabricManagerV2(TopologyQueryAPI):
         refresh_token = self._tokens.get("refresh_token") or os.environ.get(Constants.CILOGON_REFRESH_TOKEN)
 
         # Auto-refresh on load if we have refresh token
-        if self.auto_refresh and refresh_token and not self._tokens.get("id_token"):
+        #if self.auto_refresh and refresh_token and not self._tokens.get("id_token"):
+        if self.auto_refresh and refresh_token:
             try:
                 self.refresh_tokens(refresh_token=refresh_token)
             except Exception as e:
