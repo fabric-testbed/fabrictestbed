@@ -927,6 +927,7 @@ class OrchestratorClient:
         duration: int,
         resources: List[Dict[str, Any]],
         max_results: int = 1,
+        use_live_data: bool = False,
     ) -> Dict[str, Any]:
         """
         Find time windows where requested resources are simultaneously available.
@@ -937,12 +938,15 @@ class OrchestratorClient:
         :param duration: required slot length in hours
         :param resources: list of resource requirement dicts
         :param max_results: maximum number of slots to return
+        :param use_live_data: when True, use live orchestrator data instead of Reports API
         :returns: dict with slot results
         """
         if not token:
             raise OrchestratorValidationError("Token must be specified")
         if not start or not end:
             raise OrchestratorValidationError("Start and end must be specified")
+        if (end - start).days > 30:
+            raise OrchestratorValidationError("Search range must not exceed 30 days")
         if duration <= 0:
             raise OrchestratorValidationError("Duration must be greater than 0")
         if not resources:
@@ -955,9 +959,72 @@ class OrchestratorClient:
             "resources": resources,
             "max_results": max_results,
         }
+        if use_live_data:
+            body["use_live_data"] = True
         resp = self._req("POST", "/resources/find-slot", token=token, json_body=body)
         payload = self._json(resp)
         data = payload.get("data") or [{}]
+        return data[0] if data else {}
+
+    def resources_calendar(
+        self,
+        *,
+        token: str,
+        start: datetime,
+        end: datetime,
+        interval: str = "day",
+        site: Optional[List[str]] = None,
+        host: Optional[List[str]] = None,
+        exclude_site: Optional[List[str]] = None,
+        exclude_host: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Fetch resource availability calendar from the orchestrator.
+
+        :param token: FABRIC identity token
+        :param start: start of the calendar window
+        :param end: end of the calendar window
+        :param interval: time slot granularity: hour, day, or week
+        :param site: list of site names to include
+        :param host: list of host names to include
+        :param exclude_site: list of site names to exclude
+        :param exclude_host: list of host names to exclude
+        :returns: dict with calendar data
+        """
+        if not token:
+            raise OrchestratorValidationError("Token must be specified")
+        if not start or not end:
+            raise OrchestratorValidationError("Start and end must be specified")
+        if (end - start).days > 30:
+            raise OrchestratorValidationError("Search range must not exceed 30 days")
+        if interval not in ("hour", "day", "week"):
+            raise OrchestratorValidationError("Interval must be one of: hour, day, week")
+
+        params: Dict[str, Any] = {
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat(),
+            "interval": interval,
+        }
+        if site:
+            for s in site:
+                params.setdefault("site[]", [])
+                params["site[]"].append(s)
+        if host:
+            for h in host:
+                params.setdefault("host[]", [])
+                params["host[]"].append(h)
+        if exclude_site:
+            for s in exclude_site:
+                params.setdefault("exclude_site[]", [])
+                params["exclude_site[]"].append(s)
+        if exclude_host:
+            for h in exclude_host:
+                params.setdefault("exclude_host[]", [])
+                params["exclude_host[]"].append(h)
+
+        resp = self._req("GET", "/resources/calendar", token=token, params=params)
+        payload = self._json(resp)
+        data = (payload.get("data") or [{}])
         return data[0] if data else {}
 
     def renew(self, *, token: str, slice_id: str, new_lease_end_time: str) -> None:
