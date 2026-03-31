@@ -918,6 +918,48 @@ class OrchestratorClient:
         data = (payload.get("data") or [{}])
         return data[0] if data else {}
 
+    def find_resource_slot(
+        self,
+        *,
+        token: str,
+        start: datetime,
+        end: datetime,
+        duration: int,
+        resources: List[Dict[str, Any]],
+        max_results: int = 1,
+    ) -> Dict[str, Any]:
+        """
+        Find time windows where requested resources are simultaneously available.
+
+        :param token: FABRIC identity token
+        :param start: start of the search window
+        :param end: end of the search window
+        :param duration: required slot length in hours
+        :param resources: list of resource requirement dicts
+        :param max_results: maximum number of slots to return
+        :returns: dict with slot results
+        """
+        if not token:
+            raise OrchestratorValidationError("Token must be specified")
+        if not start or not end:
+            raise OrchestratorValidationError("Start and end must be specified")
+        if duration <= 0:
+            raise OrchestratorValidationError("Duration must be greater than 0")
+        if not resources:
+            raise OrchestratorValidationError("Resources must be specified")
+
+        body: Dict[str, Any] = {
+            "start": start.strftime(self.TIME_FORMAT),
+            "end": end.strftime(self.TIME_FORMAT),
+            "duration": duration,
+            "resources": resources,
+            "max_results": max_results,
+        }
+        resp = self._req("POST", "/resources/find-slot", token=token, json_body=body)
+        payload = self._json(resp)
+        data = payload.get("data") or [{}]
+        return data[0] if data else {}
+
     def renew(self, *, token: str, slice_id: str, new_lease_end_time: str) -> None:
         if not token or not slice_id or not new_lease_end_time:
             raise OrchestratorValidationError("Token, slice_id, and new_lease_end_time must be specified")

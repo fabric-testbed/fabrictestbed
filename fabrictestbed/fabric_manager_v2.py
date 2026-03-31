@@ -587,6 +587,37 @@ class FabricManagerV2(TopologyQueryAPI):
             return_fmt=return_fmt,
         )
 
+    def find_resource_slot(
+        self,
+        *,
+        start: datetime,
+        end: datetime,
+        duration: int,
+        resources: List[Dict[str, Any]],
+        max_results: int = 1,
+        id_token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Find time windows where requested resources are simultaneously available.
+
+        :param start: start of the search window
+        :param end: end of the search window
+        :param duration: required slot length in hours
+        :param resources: list of resource requirement dicts
+        :param max_results: maximum number of slots to return
+        :param id_token: Optional FABRIC ID token. If not provided, uses stored/auto-refreshed token.
+        :returns: dict with slot results
+        """
+        token = self.ensure_valid_id_token(id_token)
+        return self.orch.find_resource_slot(
+            token=token,
+            start=start,
+            end=end,
+            duration=duration,
+            resources=resources,
+            max_results=max_results,
+        )
+
     def modify_slice(
         self, *, slice_id: str, graph_model: str, id_token: Optional[str] = None, return_fmt: Literal["dict", "dto"] = "dict"
     ) -> List[Union[Dict[str, Any], SliverDTO]]:
