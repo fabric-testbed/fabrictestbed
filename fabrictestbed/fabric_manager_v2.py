@@ -595,6 +595,7 @@ class FabricManagerV2(TopologyQueryAPI):
         duration: int,
         resources: List[Dict[str, Any]],
         max_results: int = 1,
+        use_live_data: bool = False,
         id_token: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
@@ -605,6 +606,7 @@ class FabricManagerV2(TopologyQueryAPI):
         :param duration: required slot length in hours
         :param resources: list of resource requirement dicts
         :param max_results: maximum number of slots to return
+        :param use_live_data: when True, use live orchestrator data instead of Reports API
         :param id_token: Optional FABRIC ID token. If not provided, uses stored/auto-refreshed token.
         :returns: dict with slot results
         """
@@ -616,6 +618,44 @@ class FabricManagerV2(TopologyQueryAPI):
             duration=duration,
             resources=resources,
             max_results=max_results,
+            use_live_data=use_live_data,
+        )
+
+    def resources_calendar(
+        self,
+        *,
+        start: datetime,
+        end: datetime,
+        interval: str = "day",
+        site: Optional[List[str]] = None,
+        host: Optional[List[str]] = None,
+        exclude_site: Optional[List[str]] = None,
+        exclude_host: Optional[List[str]] = None,
+        id_token: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Fetch resource availability calendar from the orchestrator.
+
+        :param start: start of the calendar window
+        :param end: end of the calendar window
+        :param interval: time slot granularity: hour, day, or week
+        :param site: list of site names to include
+        :param host: list of host names to include
+        :param exclude_site: list of site names to exclude
+        :param exclude_host: list of host names to exclude
+        :param id_token: Optional FABRIC ID token. If not provided, uses stored/auto-refreshed token.
+        :returns: dict with calendar data
+        """
+        token = self.ensure_valid_id_token(id_token)
+        return self.orch.resources_calendar(
+            token=token,
+            start=start,
+            end=end,
+            interval=interval,
+            site=site,
+            host=host,
+            exclude_site=exclude_site,
+            exclude_host=exclude_host,
         )
 
     def modify_slice(
