@@ -490,7 +490,8 @@ class OrchestratorClient:
             dt = (time.perf_counter() - t0) * 1000.0
 
             self.log.info(
-                "orchestrator_http_call",
+                "orchestrator_http_call %s %s -> %s (%.0fms)",
+                method, path, resp.status_code, dt,
                 extra={
                     "event": "http_call",
                     "http_method": method,
