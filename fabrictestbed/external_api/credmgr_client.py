@@ -419,7 +419,8 @@ class CredmgrClient:
         )
         dt = (time.perf_counter() - t0) * 1000.0
         self.log.info(
-            "credmgr_http_call",
+            "credmgr_http_call %s %s -> %s (%.0fms)",
+            method, path, resp.status_code, dt,
             extra={
                 "event": "http_call",
                 "http_method": method,
