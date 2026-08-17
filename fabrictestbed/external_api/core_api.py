@@ -25,7 +25,7 @@
 import datetime
 import json
 import logging
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Union
 
 import requests
 
@@ -318,10 +318,10 @@ class CoreApi:
         """
         data = {
             "project_uuid": project_uuid,
-            "resource_type": resource_type,
-            "resource_unit": resource_unit,
-            "quota_used": quota_used,
-            "quota_limit": quota_limit
+            "resource_type": self.resource_name(resource_type),
+            "resource_unit": self.resource_name(resource_unit),
+            "quota_used": float(quota_used),
+            "quota_limit": float(quota_limit)
         }
         response = requests.post(f'{self.api_server}/quotas', headers=self.headers, json=data)
         self.raise_for_status(response=response)
@@ -343,59 +343,87 @@ class CoreApi:
         logging.debug(f"GET Quotas Response : {response.json()}")
         return response.json().get("results")
 
+    @staticmethod
+    def resource_name(value: Union[str, dict, None]) -> Optional[str]:
+        """
+        Normalize a quota field that the Core API may return either as a plain string or as an object.
+
+        GET /quotas returns `resource_type` as an object ({"name": ..., "value": ...}) per the
+        `quotas_one_resource_type` schema, while the POST and PUT payloads declare it as a plain string.
+        Passing the object form straight back fails OpenAPI validation with a 400 before the request
+        ever reaches the handler.
+
+        Parameters:
+        value: the raw value read from a quota record, either a string or a {"name": ...} object.
+
+        Returns:
+        Optional[str]: the string form suitable for a quota payload, or None if there is no value.
+        """
+        if isinstance(value, dict):
+            return value.get("name")
+        return value
+
     def update_quota_usage(self, uuid: str, project_uuid: str, quota_used: float):
         """
         Send a PUT request to update a quota usage by UUID.
 
+        Reads the current usage for the quota and adds `quota_used` to it, flooring the result at 0.
+
+        Only `quota_used` is sent. The quota is identified by `uuid` in the path and `quotas_put`
+        declares no required properties, so the resource type, unit and limit are left untouched
+        rather than being read back and echoed -- echoing them can only ever re-send a value the
+        server already has, and it is what previously made this call fail validation outright.
+
         Parameters:
         uuid (str): The UUID of the quota to update.
         project_uuid (str): The ID of the project to which the quota belongs.
-        quota_used (int, optional): The amount of resource currently used.
+        quota_used (float): The amount of resource to add to the current usage; may be negative.
 
         Returns:
         List[dict]: The updated quota details.
         """
         current_quota = self.get_quota(uuid=uuid)[0]
 
-        value = current_quota.get("quota_used") + quota_used
+        value = float(current_quota.get("quota_used") or 0) + quota_used
         if value < 0:
             value = 0
 
-        data = {
-            "project_uuid": project_uuid,
-            "resource_type": current_quota.get("resource_type"),
-            "resource_unit": current_quota.get("resource_unit"),
-            "quota_used": value,
-            "quota_limit": current_quota.get("quota_limit")
-        }
-        response = requests.put(f'{self.api_server}/quotas/{uuid}', headers=self.headers, json=data)
-        self.raise_for_status(response=response)
-        logging.debug(f"PUT Quotas Response : {response.json()}")
-        return response.json().get("results")
+        return self.update_quota(uuid=uuid, project_uuid=project_uuid, quota_used=value)
 
-    def update_quota(self, uuid: str, project_uuid: str, resource_type: str, resource_unit: str,
-                     quota_used: float = 0, quota_limit: float = 0):
+    def update_quota(self, uuid: str, project_uuid: str, resource_type: Union[str, dict] = None,
+                     resource_unit: Union[str, dict] = None, quota_used: float = None,
+                     quota_limit: float = None):
         """
         Send a PUT request to update a quota by UUID.
+
+        This is a partial update: any parameter left as None is omitted from the payload and the server
+        keeps its current value. `quotas_put` declares every property as an optional string or number,
+        so a null is rejected outright -- and one null takes the whole payload down with it, not just
+        its own field.
 
         Parameters:
         uuid (str): The UUID of the quota to update.
         project_uuid (str): The ID of the project to which the quota belongs.
-        resource_type (str): The type of resource (e.g., CPU, RAM).
-        resource_unit (str): The unit of the resource (e.g., cores, GB).
-        quota_used (int, optional): The amount of resource currently used. Defaults to 0.
-        quota_limit (int, optional): The limit for the resource. Defaults to 0.
+        resource_type (str, optional): The type of resource (e.g., CPU, RAM). Also accepts the object
+                                       form returned by GET /quotas, in which case its "name" is used.
+        resource_unit (str, optional): The unit of the resource (e.g., cores, GB). Same object form
+                                       accepted.
+        quota_used (float, optional): The amount of resource currently used. Left unchanged if omitted.
+        quota_limit (float, optional): The limit for the resource. Left unchanged if omitted.
 
         Returns:
         List[dict]: The updated quota details.
         """
         data = {
             "project_uuid": project_uuid,
-            "resource_type": resource_type,
-            "resource_unit": resource_unit,
-            "quota_used": quota_used,
-            "quota_limit": quota_limit
+            "resource_type": self.resource_name(resource_type),
+            "resource_unit": self.resource_name(resource_unit),
+            "quota_used": None if quota_used is None else float(quota_used),
+            "quota_limit": None if quota_limit is None else float(quota_limit)
         }
+        data = {k: v for k, v in data.items() if v is not None}
+
+        logging.debug(f"PUT Quotas Request : {uuid} {data}")
         response = requests.put(f'{self.api_server}/quotas/{uuid}', headers=self.headers, json=data)
         self.raise_for_status(response=response)
         logging.debug(f"PUT Quotas Response : {response.json()}")
